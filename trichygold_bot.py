@@ -1,6 +1,11 @@
+
+
+
 import asyncio
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
+from flask import Flask
+import threading
 
 BOT_TOKEN = '7358468280:AAEeJFelkjQv7f3DpL87uFffQ0-nBCBGuw8'
 YOUR_ID = '1341853859'  # From /start
@@ -10,9 +15,18 @@ EMPLOYEES = {
     # Your other 5 employees
 }
 
+
+# Flask app for Render port binding
+app = Flask(__name__)
+
+@app.route('/')
+def health_check():
+    return "Bot is running", 200
+
+# Telegram bot functions
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.message.chat_id
-    await update.message.reply_text(f"Hi! Your chat ID is {chat_id}. Boss uses /assign or sends voice/attachments with a caption (e.g., 'john').")
+    await update.message.reply_text(f"Hi! Your chat ID is {chat_id}. Boss uses /assign or sends voice (then text with name) or attachments with a caption (e.g., 'john').")
 
 async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if str(update.message.chat_id) != YOUR_ID:
@@ -24,10 +38,10 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         employee = employee.lower()
         if employee in EMPLOYEES:
             employee_id = EMPLOYEES[employee]
-            await context.bot.send_message(chat_id=employee_id, text=f"New task assigned: {task}")
-            await update.message.reply_text(f"Task sent to {employee}: {task}")
+            await context.bot.send_message(chat_id=employee_id, text=f"New task from the boss: {task}")
+            await update.message.reply_text(f"Task SENT to {employee}: {task}")
         else:
-            await update.message.reply_text("Employee not found. Check the name and try again.")
+            await update.message.reply_text(f"Employee '{employee}' not found. Available: {list(EMPLOYEES.keys())}")
     except Exception as e:
         await update.message.reply_text(f"Usage: /assign <employee> <task>. Example: /assign john Polish the rings")
 
@@ -38,9 +52,9 @@ async def handle_voice_task(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     try:
         caption = update.message.caption
         employee = caption.lower() if caption else None
-        print(f"Voice task - Raw caption: '{caption}', Processed: '{employee}', Message: {update.message}")
+        print(f"Voice task - Raw caption: '{caption}', Processed: '{employee}'")
         if not employee:
-            await update.message.reply_text("No caption detected. Please reply with the employee name (e.g., 'john').")
+            await update.message.reply_text("No caption detected. Please send the employee name (e.g., 'john') as the next message.")
             context.user_data['pending_voice'] = update.message.voice.file_id
             return
         if employee not in EMPLOYEES:
@@ -48,8 +62,8 @@ async def handle_voice_task(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             return
         employee_id = EMPLOYEES[employee]
         voice_file = await update.message.voice.get_file()
-        await context.bot.send_voice(chat_id=employee_id, voice=voice_file.file_id, caption="New voice task aasigned")
-        await update.message.reply_text(f"Voice task sent to {employee}")
+        await context.bot.send_voice(chat_id=employee_id, voice=voice_file.file_id, caption="New voice task from the boss")
+        await update.message.reply_text(f"Voice task SENT to {employee}")
     except Exception as e:
         await update.message.reply_text(f"Error sending voice task: {str(e)}")
 
@@ -60,7 +74,7 @@ async def handle_attachment_task(update: Update, context: ContextTypes.DEFAULT_T
     try:
         caption = update.message.caption
         employee = caption.lower() if caption else None
-        print(f"Attachment task - Raw caption: '{caption}', Processed: '{employee}', Message: {update.message}")
+        print(f"Attachment task - Raw caption: '{caption}', Processed: '{employee}'")
         if not employee:
             await update.message.reply_text("Please include the employee name as a caption (e.g., 'john') with your attachment.")
             return
@@ -70,14 +84,14 @@ async def handle_attachment_task(update: Update, context: ContextTypes.DEFAULT_T
         employee_id = EMPLOYEES[employee]
         if update.message.photo:
             photo_file = await update.message.photo[-1].get_file()
-            await context.bot.send_photo(chat_id=employee_id, photo=photo_file.file_id, caption="New task with picture attachment ")
+            await context.bot.send_photo(chat_id=employee_id, photo=photo_file.file_id, caption="New task attachment from the boss")
         elif update.message.document:
             doc_file = await update.message.document.get_file()
-            await context.bot.send_document(chat_id=employee_id, document=doc_file.file_id, caption="New task with file attachment ")
+            await context.bot.send_document(chat_id=employee_id, document=doc_file.file_id, caption="New task attachment from the boss")
         else:
             await update.message.reply_text("Unsupported attachment type. Send a photo or document.")
             return
-        await update.message.reply_text(f"Attachment task sent to {employee}")
+        await update.message.reply_text(f"Attachment task SENT to {employee}")
     except Exception as e:
         await update.message.reply_text(f"Error sending attachment task: {str(e)}")
 
@@ -107,15 +121,15 @@ async def handle_text_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if employee in EMPLOYEES:
         employee_id = EMPLOYEES[employee]
         voice_file_id = context.user_data.pop('pending_voice')
-        await context.bot.send_voice(chat_id=employee_id, voice=voice_file_id, caption="New voice task assigned")
-        await update.message.reply_text(f"Voice task sent to {employee}")
+        await context.bot.send_voice(chat_id=employee_id, voice=voice_file_id, caption="New voice task from the boss")
+        await update.message.reply_text(f"Voice task SENT to {employee}")
     else:
         await update.message.reply_text(f"Employee '{employee}' not found. Available: {list(EMPLOYEES.keys())}")
 
 async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text("Sorry, I didn’t understand that. Use /start, /assign (boss only), or send a voice/attachment with a caption.")
+    await update.message.reply_text("Sorry, I didn’t understand that. Use /start, /assign (boss only), or send a voice/attachment.")
 
-def main() -> None:
+def run_bot():
     application = Application.builder().token(BOT_TOKEN).build()
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("assign", assign_task))
@@ -128,7 +142,12 @@ def main() -> None:
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == '__main__':
-    main()
+    # Start Flask in a separate thread
+    flask_thread = threading.Thread(target=lambda: app.run(host='0.0.0.0', port=8080))
+    flask_thread.daemon = True
+    flask_thread.start()
+    # Run Telegram bot
+    run_bot()
 
 
 
