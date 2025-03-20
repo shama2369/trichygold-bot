@@ -1,13 +1,10 @@
-
-
-
 import asyncio
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 from flask import Flask
 import threading
 
-BOT_TOKEN = '7358468280:AAEeJFelkjQv7f3DpL87uFffQ0-nBCBGuw8'
+BOT_TOKEN = '7358468280:AAHWN3RO_911mvpX-NLyF9Y8nXCycrIs6oA'
 YOUR_ID = '1341853859'  # From /start
 EMPLOYEES = {
    
