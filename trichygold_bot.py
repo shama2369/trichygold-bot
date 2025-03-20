@@ -5,7 +5,7 @@ from flask import Flask
 import threading
 import os
 
-BOT_TOKEN = '7358468280:AAHWN3RO_911mvpX-NLyF9Y8nXCycrIs6oA'
+BOT_TOKEN = '7358468280:AAGktrhJSHmhHWlW8KmME_ST5P6VQkoj_Vo'
 YOUR_ID = '1341853859'  # From /start
 EMPLOYEES = {
    
