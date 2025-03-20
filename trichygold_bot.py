@@ -3,6 +3,7 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 from flask import Flask
 import threading
+import os
 
 BOT_TOKEN = '7358468280:AAHWN3RO_911mvpX-NLyF9Y8nXCycrIs6oA'
 YOUR_ID = '1341853859'  # From /start
@@ -12,15 +13,12 @@ EMPLOYEES = {
     # Your other 5 employees
 }
 
-
-# Flask app for Render port binding
 app = Flask(__name__)
 
 @app.route('/')
 def health_check():
     return "Bot is running", 200
 
-# Telegram bot functions
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.message.chat_id
     await update.message.reply_text(f"Hi! Your chat ID is {chat_id}. Boss uses /assign or sends voice (then text with name) or attachments with a caption (e.g., 'john').")
@@ -127,40 +125,32 @@ async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text("Sorry, I didn’t understand that. Use /start, /assign (boss only), or send a voice/attachment.")
 
 def run_bot():
-    application = Application.builder().token(BOT_TOKEN).build()
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("assign", assign_task))
-    application.add_handler(MessageHandler(filters.VOICE & ~filters.COMMAND, handle_voice_task))
-    application.add_handler(MessageHandler((filters.PHOTO | filters.Document.ALL) & ~filters.COMMAND, handle_attachment_task))
-    application.add_handler(MessageHandler((filters.VOICE | filters.PHOTO | filters.Document.ALL) & ~filters.COMMAND, handle_employee_reply))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_reply))
-    application.add_handler(MessageHandler(filters.COMMAND, unknown))
-    print("Bot is running...")
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    lock_file = '/tmp/bot.lock'
+    if os.path.exists(lock_file):
+        print("Another instance is running. Exiting...")
+        return
+    with open(lock_file, 'w') as f:
+        f.write(str(os.getpid()))
+    try:
+        application = Application.builder().token(BOT_TOKEN).build()
+        application.add_handler(CommandHandler("start", start))
+        application.add_handler(CommandHandler("assign", assign_task))
+        application.add_handler(MessageHandler(filters.VOICE & ~filters.COMMAND, handle_voice_task))
+        application.add_handler(MessageHandler((filters.PHOTO | filters.Document.ALL) & ~filters.COMMAND, handle_attachment_task))
+        application.add_handler(MessageHandler((filters.VOICE | filters.PHOTO | filters.Document.ALL) & ~filters.COMMAND, handle_employee_reply))
+        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_reply))
+        application.add_handler(MessageHandler(filters.COMMAND, unknown))
+        print("Bot is running...")
+        application.run_polling(allowed_updates=Update.ALL_TYPES)
+    finally:
+        if os.path.exists(lock_file):
+            os.remove(lock_file)
 
 if __name__ == '__main__':
-    # Start Flask in a separate thread
     flask_thread = threading.Thread(target=lambda: app.run(host='0.0.0.0', port=8080))
     flask_thread.daemon = True
     flask_thread.start()
-    # Run Telegram bot
     run_bot()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
