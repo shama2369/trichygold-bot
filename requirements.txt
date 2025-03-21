@@ -1,2 +1,5 @@
-python-telegram-bot==20.7
+telegram
+python-telegram-bot
 flask
+httpx
+uvicorn

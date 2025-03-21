@@ -1,8 +1,9 @@
 import asyncio
 from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
+from telegram.ext import Application, CommandHandler, ContextTypes
 from flask import Flask, request
 import traceback
+import uvicorn
 
 BOT_TOKEN = '7358468280:AAGktrhJSHmhHWlW8KmME_ST5P6VQkoj_Vo'
 YOUR_ID = '1341853859'
@@ -19,7 +20,7 @@ def health_check():
     return "Bot is running", 200
 
 @app.route(f'/webhook/{BOT_TOKEN}', methods=['POST'])
-def webhook():
+async def webhook():
     print("Webhook route hit!")
     try:
         data = request.get_json(force=True)
@@ -29,7 +30,7 @@ def webhook():
             print("Failed to parse update: Update is None")
             return "Update parsing failed", 200
         print(f"Update parsed: {update.update_id}")
-        asyncio.run(application.process_update(update))
+        await application.process_update(update)  # Use await directly
         print("Update processed successfully")
         return "Webhook OK", 200
     except Exception as e:
@@ -65,7 +66,7 @@ async def setup_webhook():
     render_url = "https://trichygold-bot.onrender.com"
     webhook_url = f"{render_url}/webhook/{BOT_TOKEN}"
     try:
-        await application.initialize()  # Initialize the application
+        await application.initialize()
         response = await application.bot.set_webhook(url=webhook_url)
         print(f"Webhook set response: {response}")
         if response:
@@ -76,7 +77,13 @@ async def setup_webhook():
         print(f"Webhook setup error: {e}")
         traceback.print_exc()
 
-if __name__ == '__main__':
+async def main():
     print("Bot is setting up...")
-    asyncio.run(setup_webhook())
-    app.run(host='0.0.0.0', port=8080)
+    await setup_webhook()
+    # Start Flask with uvicorn
+    config = uvicorn.Config(app=app, host="0.0.0.0", port=8080, loop="asyncio")
+    server = uvicorn.Server(config)
+    await server.serve()
+
+if __name__ == '__main__':
+    asyncio.run(main())
