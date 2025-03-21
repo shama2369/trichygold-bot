@@ -1,7 +1,7 @@
 import asyncio
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
-from flask import Flask, request
+from quart import Quart, request
 import traceback
 import uvicorn
 
@@ -11,11 +11,11 @@ EMPLOYEES = {
     'shameem': '1341853859',
 }
 
-app = Flask(__name__)
+app = Quart(__name__)
 application = Application.builder().token(BOT_TOKEN).build()
 
 @app.route('/')
-def health_check():
+async def health_check():
     print("Health check called!")
     return "Bot is running", 200
 
@@ -23,14 +23,14 @@ def health_check():
 async def webhook():
     print("Webhook route hit!")
     try:
-        data = request.get_json(force=True)
+        data = await request.get_json(force=True)
         print(f"Received data: {data}")
         update = Update.de_json(data, application.bot)
         if not update:
             print("Failed to parse update: Update is None")
             return "Update parsing failed", 200
         print(f"Update parsed: {update.update_id}")
-        await application.process_update(update)  # Use await directly
+        await application.process_update(update)
         print("Update processed successfully")
         return "Webhook OK", 200
     except Exception as e:
@@ -80,7 +80,6 @@ async def setup_webhook():
 async def main():
     print("Bot is setting up...")
     await setup_webhook()
-    # Start Flask with uvicorn
     config = uvicorn.Config(app=app, host="0.0.0.0", port=8080, loop="asyncio")
     server = uvicorn.Server(config)
     await server.serve()

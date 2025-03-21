@@ -1,5 +1,5 @@
 telegram
 python-telegram-bot
-flask
+quart
 httpx
 uvicorn
