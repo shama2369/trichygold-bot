@@ -12,7 +12,6 @@ EMPLOYEES = {
 }
 
 
-
 app = Flask(__name__)
 application = Application.builder().token(BOT_TOKEN).build()
 
@@ -23,19 +22,20 @@ def health_check():
 
 @app.route(f'/webhook/{BOT_TOKEN}', methods=['POST'])
 def webhook():
+    print("Webhook route hit!")  # Log entry
     try:
-        print("Webhook received!")
         data = request.get_json(force=True)
         print(f"Received data: {data}")
         update = Update.de_json(data, application.bot)
-        if update:
-            print(f"Update parsed: {update.update_id}")
-            asyncio.run(application.process_update(update))
-        else:
-            print("Failed to parse update!")
+        if not update:
+            print("Failed to parse update: Update is None")
+            return '', 200  # Still return 200 to clear Telegram queue
+        print(f"Update parsed: {update.update_id}")
+        asyncio.run(application.process_update(update))
+        print("Update processed successfully")
         return '', 200
     except Exception as e:
-        print(f"Webhook error: {e}")
+        print(f"Webhook error: {str(e)}")
         return '', 500
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -79,6 +79,17 @@ if __name__ == '__main__':
     print("Bot is setting up...")
     asyncio.run(setup_webhook())
     app.run(host='0.0.0.0', port=8080)
+
+
+
+
+
+
+
+
+
+
+
 
 
 
