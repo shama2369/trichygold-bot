@@ -2,6 +2,7 @@ import asyncio
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 from flask import Flask, request
+import traceback  # Add this import
 
 BOT_TOKEN = '7358468280:AAGktrhJSHmhHWlW8KmME_ST5P6VQkoj_Vo'
 YOUR_ID = '1341853859'
@@ -34,6 +35,7 @@ def webhook():
         return "Webhook OK", 200
     except Exception as e:
         print(f"Webhook error: {str(e)}")
+        traceback.print_exc()  # Add this line to print the full traceback
         return f"Error: {str(e)}", 500
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
