@@ -18,19 +18,32 @@ application = Application.builder().token(BOT_TOKEN).build()
 
 @app.route('/')
 def health_check():
+    print("Health check called!")
     return "Bot is running", 200
 
 @app.route(f'/webhook/{BOT_TOKEN}', methods=['POST'])
-async def webhook():
-    print("Webhook received!")  # Debug
-    update = Update.de_json(request.get_json(force=True), application.bot)
-    await application.process_update(update)
-    return '', 200
+def webhook():
+    try:
+        print("Webhook received!")
+        data = request.get_json(force=True)
+        print(f"Received data: {data}")
+        update = Update.de_json(data, application.bot)
+        if update:
+            print(f"Update parsed: {update.update_id}")
+            asyncio.run(application.process_update(update))
+        else:
+            print("Failed to parse update!")
+        return '', 200
+    except Exception as e:
+        print(f"Webhook error: {e}")
+        return '', 500
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    print(f"Processing /start from {update.message.chat_id}")
     await update.message.reply_text(f"Hi! Your chat ID is {update.message.chat_id}. Use /assign <employee> <task>.")
 
 async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    print(f"Processing /assign from {update.message.chat_id}")
     if str(update.message.chat_id) != YOUR_ID:
         await update.message.reply_text("Only the boss can assign tasks!")
         return
@@ -46,12 +59,11 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except ValueError:
         await update.message.reply_text("Use: /assign <employee> <task>")
 
-# Register handlers
 application.add_handler(CommandHandler("start", start))
 application.add_handler(CommandHandler("assign", assign_task))
 
 async def setup_webhook():
-    render_url = "https://trichygold-bot.onrender.com"  # Replace with your exact Render URL
+    render_url = "https://trichygold-bot.onrender.com"
     webhook_url = f"{render_url}/webhook/{BOT_TOKEN}"
     try:
         response = await application.bot.set_webhook(url=webhook_url)
@@ -67,20 +79,6 @@ if __name__ == '__main__':
     print("Bot is setting up...")
     asyncio.run(setup_webhook())
     app.run(host='0.0.0.0', port=8080)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
