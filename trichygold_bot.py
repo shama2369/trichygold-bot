@@ -22,21 +22,21 @@ def health_check():
 
 @app.route(f'/webhook/{BOT_TOKEN}', methods=['POST'])
 def webhook():
-    print("Webhook route hit!")  # Log entry
+    print("Webhook route hit!")
     try:
         data = request.get_json(force=True)
         print(f"Received data: {data}")
         update = Update.de_json(data, application.bot)
         if not update:
             print("Failed to parse update: Update is None")
-            return '', 200  # Still return 200 to clear Telegram queue
+            return "Update parsing failed", 200
         print(f"Update parsed: {update.update_id}")
         asyncio.run(application.process_update(update))
         print("Update processed successfully")
-        return '', 200
+        return "Webhook OK", 200
     except Exception as e:
         print(f"Webhook error: {str(e)}")
-        return '', 500
+        return f"Error: {str(e)}", 500
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     print(f"Processing /start from {update.message.chat_id}")
@@ -79,21 +79,6 @@ if __name__ == '__main__':
     print("Bot is setting up...")
     asyncio.run(setup_webhook())
     app.run(host='0.0.0.0', port=8080)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
