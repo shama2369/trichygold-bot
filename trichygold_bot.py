@@ -1,19 +1,14 @@
-
-
-
 import asyncio
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 from flask import Flask, request
 
 BOT_TOKEN = '7358468280:AAGktrhJSHmhHWlW8KmME_ST5P6VQkoj_Vo'
-YOUR_ID = '1341853859'  # From /start
+YOUR_ID = '1341853859'
 EMPLOYEES = {
-   
-    'shameem': '1341853859',  # Add this with real ID
-    # Your other 5 employees
+    
+    'shameem': '1341853859',
 }
-
 
 app = Flask(__name__)
 application = Application.builder().token(BOT_TOKEN).build()
@@ -82,13 +77,3 @@ if __name__ == '__main__':
     print("Bot is setting up...")
     asyncio.run(setup_webhook())
     app.run(host='0.0.0.0', port=8080)
-
-
-
-
-
-
-
-
-
-
