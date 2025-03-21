@@ -1,3 +1,6 @@
+
+
+
 import asyncio
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
@@ -79,8 +82,6 @@ if __name__ == '__main__':
     print("Bot is setting up...")
     asyncio.run(setup_webhook())
     app.run(host='0.0.0.0', port=8080)
-
-
 
 
 
