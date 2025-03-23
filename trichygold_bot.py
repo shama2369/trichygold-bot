@@ -1,84 +1,150 @@
+
 import asyncio
 from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 from quart import Quart, request
-import traceback
 import uvicorn
 
 BOT_TOKEN = '7358468280:AAGktrhJSHmhHWlW8KmME_ST5P6VQkoj_Vo'
 YOUR_ID = '1341853859'
 EMPLOYEES = {
     'shameem': '1341853859',
+    'employee2': 'CHAT_ID_2',  # Replace with real chat IDs
+    'employee3': 'CHAT_ID_3',
+    'employee4': 'CHAT_ID_4',
+    'employee5': 'CHAT_ID_5',
+    'employee6': 'CHAT_ID_6',
+    'employee7': 'CHAT_ID_7',
+    'employee8': 'CHAT_ID_8',
+    'employee9': 'CHAT_ID_9',
+    'employee10': 'CHAT_ID_10',
+    'employee11': 'CHAT_ID_11',
+    'employee12': 'CHAT_ID_12',
+    'employee13': 'CHAT_ID_13',
 }
 
 app = Quart(__name__)
 application = Application.builder().token(BOT_TOKEN).build()
 
+CONTEXT = {}
+
 @app.route('/')
 async def health_check():
-    print("Health check called!")
     return "Bot is running", 200
 
 @app.route(f'/webhook/{BOT_TOKEN}', methods=['POST'])
 async def webhook():
-    print("Webhook route hit!")
-    try:
-        data = await request.get_json(force=True)
-        print(f"Received data: {data}")
-        update = Update.de_json(data, application.bot)
-        if not update:
-            print("Failed to parse update: Update is None")
-            return "Update parsing failed", 200
-        print(f"Update parsed: {update.update_id}")
-        await application.process_update(update)
-        print("Update processed successfully")
-        return "Webhook OK", 200
-    except Exception as e:
-        print(f"Webhook error: {str(e)}")
-        traceback.print_exc()
-        return f"Error: {str(e)}", 500
+    data = await request.get_json(force=True)
+    update = Update.de_json(data, application.bot)
+    if not update:
+        return "Update parsing failed", 200
+    await application.process_update(update)
+    return "Webhook OK", 200
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    print(f"Processing /start from {update.message.chat_id}")
-    await update.message.reply_text(f"Hi! Your chat ID is {update.message.chat_id}. Use /assign <employee> <task>.")
+    await update.message.reply_text(f"Chat ID: {update.message.chat_id}. Boss: /assign <employee> <task> [minutes] + photo/voice. Employees: reply with text/file/voice, 'done' to complete.")
+
+async def send_reminder(context: ContextTypes.DEFAULT_TYPE):
+    job = context.job
+    chat_id = job.data['chat_id']
+    task = job.data['task']
+    await context.bot.send_message(chat_id=chat_id, text=f"Reminder: {task}")
 
 async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    print(f"Processing /assign from {update.message.chat_id}")
     if str(update.message.chat_id) != YOUR_ID:
-        await update.message.reply_text("Only the boss can assign tasks!")
+        await update.message.reply_text("Only boss can assign!")
         return
     try:
-        text = ' '.join(context.args)
-        employee, task = text.split(' ', 1)
-        employee = employee.lower()
+        args = context.args
+        if len(args) < 2:
+            raise ValueError
+        employee = args[0].lower()
+        task = ' '.join(args[1:] if len(args) == 2 else args[1:-1])
+        minutes = int(args[-1]) if len(args) > 2 and args[-1].isdigit() else 60
+        
         if employee in EMPLOYEES:
-            await context.bot.send_message(chat_id=EMPLOYEES[employee], text=f"New task: {task}")
-            await update.message.reply_text(f"Task SENT to {employee}: {task}")
+            chat_id = EMPLOYEES[employee]
+            msg = await context.bot.send_message(chat_id=chat_id, text=f"Task: {task} (Reply with text/file/voice, 'done' to complete)")
+            await update.message.reply_text(f"Sent to {employee}: {task}. Reminder in {minutes} min. Reply with photo/voice if needed.")
+            job = context.job_queue.run_once(send_reminder, minutes * 60, data={'chat_id': chat_id, 'task': task})
+            CONTEXT[update.message.message_id] = {
+                'employee': employee,
+                'task': task,
+                'chat_id': chat_id,
+                'task_msg_id': msg.message_id,
+                'job': job  # Store job for cancellation
+            }
         else:
-            await update.message.reply_text(f"Employee '{employee}' not found.")
+            await update.message.reply_text(f"'{employee}' not found. Valid employees: {', '.join(EMPLOYEES.keys())}")
     except ValueError:
-        await update.message.reply_text("Use: /assign <employee> <task>")
+        await update.message.reply_text("Use: /assign <employee> <task> [minutes]")
+
+async def handle_boss_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if str(update.message.chat_id) != YOUR_ID:
+        return
+    if not update.message.reply_to_message or update.message.reply_to_message.message_id not in CONTEXT:
+        await update.message.reply_text("Reply to an /assign message with photo/voice.")
+        return
+    
+    reply_id = update.message.reply_to_message.message_id
+    task_info = CONTEXT[reply_id]
+    employee_chat_id = task_info['chat_id']
+    
+    if update.message.photo:
+        photo_file = update.message.photo[-1].file_id
+        await context.bot.send_photo(chat_id=employee_chat_id, photo=photo_file, caption=f"Task: {task_info['task']}")
+        await update.message.reply_text(f"Photo sent to {task_info['employee']}.")
+    elif update.message.voice:
+        voice_file = update.message.voice.file_id
+        await context.bot.send_voice(chat_id=employee_chat_id, voice=voice_file, caption=f"Task: {task_info['task']}")
+        await update.message.reply_text(f"Voice sent to {task_info['employee']}.")
+    else:
+        await update.message.reply_text("Send a photo or voice message.")
+
+async def handle_employee_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if str(update.message.chat_id) not in EMPLOYEES.values():
+        return
+    if not update.message.reply_to_message:
+        await update.message.reply_text("Reply to a task message with text/file/voice.")
+        return
+    
+    reply_msg_id = update.message.reply_to_message.message_id
+    for orig_msg_id, task_info in list(CONTEXT.items()):
+        if task_info.get('task_msg_id') == reply_msg_id:
+            employee = task_info['employee']
+            task = task_info['task']
+            if update.message.text and update.message.text.lower() == 'done':
+                await context.bot.send_message(chat_id=YOUR_ID, text=f"{employee} completed '{task}'")
+                await update.message.reply_text("Task marked complete. Reminder cancelled.")
+                if task_info['job']:
+                    task_info['job'].schedule_removal()  # Cancel reminder
+                del CONTEXT[orig_msg_id]  # Clean up
+            elif update.message.text:
+                await context.bot.send_message(chat_id=YOUR_ID, text=f"{employee} on '{task}': {update.message.text}")
+                await update.message.reply_text("Response sent to boss.")
+            elif update.message.document:
+                file_id = update.message.document.file_id
+                await context.bot.send_document(chat_id=YOUR_ID, document=file_id, caption=f"{employee} on '{task}'")
+                await update.message.reply_text("File sent to boss.")
+            elif update.message.voice:
+                voice_id = update.message.voice.file_id
+                await context.bot.send_voice(chat_id=YOUR_ID, voice=voice_id, caption=f"{employee} on '{task}'")
+                await update.message.reply_text("Voice sent to boss.")
+            break
+    else:
+        await update.message.reply_text("Reply to a task message.")
 
 application.add_handler(CommandHandler("start", start))
 application.add_handler(CommandHandler("assign", assign_task))
+application.add_handler(MessageHandler(filters.PHOTO | filters.VOICE & filters.User(user_id=int(YOUR_ID)), handle_boss_media))
+application.add_handler(MessageHandler(filters.TEXT | filters.Document.ALL | filters.VOICE & ~filters.User(user_id=int(YOUR_ID)), handle_employee_response))
 
 async def setup_webhook():
-    render_url = "https://trichygold-bot.onrender.com"
-    webhook_url = f"{render_url}/webhook/{BOT_TOKEN}"
-    try:
-        await application.initialize()
-        response = await application.bot.set_webhook(url=webhook_url)
-        print(f"Webhook set response: {response}")
-        if response:
-            print(f"Webhook successfully set to {webhook_url}")
-        else:
-            print("Webhook setup failed!")
-    except Exception as e:
-        print(f"Webhook setup error: {e}")
-        traceback.print_exc()
+    url = f"https://trichygold-bot.onrender.com/webhook/{BOT_TOKEN}"
+    await application.initialize()
+    response = await application.bot.set_webhook(url=url)
 
 async def main():
-    print("Bot is setting up...")
     await setup_webhook()
     config = uvicorn.Config(app=app, host="0.0.0.0", port=8080, loop="asyncio")
     server = uvicorn.Server(config)
@@ -86,3 +152,24 @@ async def main():
 
 if __name__ == '__main__':
     asyncio.run(main())
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
