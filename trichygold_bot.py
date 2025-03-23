@@ -101,4 +101,67 @@ async def handle_boss_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     task_info = CONTEXT[boss_msg_id]
     employee_chat_id = task_info['chat_id']
     
-    if update.message.phot
+    if update.message.photo:
+        photo_file = update.message.photo[-1].file_id
+        await context.bot.send_photo(chat_id=employee_chat_id, photo=photo_file, caption=f"Task: {task_info['task']}")
+        await update.message.reply_text(f"Photo sent to {task_info['employee']}.")
+    elif update.message.voice:
+        voice_file = update.message.voice.file_id
+        await context.bot.send_voice(chat_id=employee_chat_id, voice=voice_file, caption=f"Task: {task_info['task']}")
+        await update.message.reply_text(f"Voice sent to {task_info['employee']}.")
+    else:
+        await update.message.reply_text("Send a photo or voice message.")
+
+async def handle_employee_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = str(update.message.chat_id)
+    if chat_id not in EMPLOYEES.values():
+        return
+    if not update.message.reply_to_message:
+        await update.message.reply_text("Reply to your task message with text/file/voice.")
+        return
+    
+    reply_msg_id = update.message.reply_to_message.message_id
+    for boss_msg_id, task_info in list(CONTEXT.items()):
+        if task_info['task_msg_id'] == reply_msg_id and task_info['chat_id'] == chat_id:
+            employee = task_info['employee']
+            task = task_info['task']
+            if update.message.text and update.message.text.lower() == 'done':
+                await context.bot.send_message(chat_id=YOUR_ID, text=f"{employee} completed '{task}'")
+                await update.message.reply_text("Task marked complete. Reminder cancelled.")
+                if task_info['job']:
+                    task_info['job'].schedule_removal()
+                del CONTEXT[boss_msg_id]
+            elif update.message.text:
+                await context.bot.send_message(chat_id=YOUR_ID, text=f"{employee} on '{task}': {update.message.text}")
+                await update.message.reply_text("Response sent to boss.")
+            elif update.message.document:
+                file_id = update.message.document.file_id
+                await context.bot.send_document(chat_id=YOUR_ID, document=file_id, caption=f"{employee} on '{task}'")
+                await update.message.reply_text("File sent to boss.")
+            elif update.message.voice:
+                voice_id = update.message.voice.file_id
+                await context.bot.send_voice(chat_id=YOUR_ID, voice=voice_id, caption=f"{employee} on '{task}'")
+                await update.message.reply_text("Voice sent to boss.")
+            break
+    else:
+        await update.message.reply_text("Reply to your task message with text/file/voice.")
+
+application.add_handler(CommandHandler("start", start))
+application.add_handler(CommandHandler("assign", assign_task))
+application.add_handler(MessageHandler(filters.PHOTO | filters.VOICE & filters.User(user_id=int(YOUR_ID)), handle_boss_media))
+application.add_handler(MessageHandler(filters.TEXT | filters.Document.ALL | filters.VOICE & ~filters.User(user_id=int(YOUR_ID)), handle_employee_response))
+
+async def setup_webhook():
+    url = f"https://trichygold-bot.onrender.com/webhook/{BOT_TOKEN}"
+    await application.initialize()
+    response = await application.bot.set_webhook(url=url)
+    logger.info(f"Webhook set: {response}")
+
+async def main():
+    await setup_webhook()
+    config = uvicorn.Config(app=app, host="0.0.0.0", port=8080, loop="asyncio")
+    server = uvicorn.Server(config)
+    await server.serve()
+
+if __name__ == '__main__':
+    asyncio.run(main())
