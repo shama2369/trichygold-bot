@@ -1,15 +1,18 @@
-
 import asyncio
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 from quart import Quart, request
 import uvicorn
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 BOT_TOKEN = '7358468280:AAGktrhJSHmhHWlW8KmME_ST5P6VQkoj_Vo'
 YOUR_ID = '1341853859'
 EMPLOYEES = {
     'shameem': '1341853859',
-    'employee2': 'CHAT_ID_2',  # Replace with real chat IDs
+    'employee2': 'CHAT_ID_2',
     'employee3': 'CHAT_ID_3',
     'employee4': 'CHAT_ID_4',
     'employee5': 'CHAT_ID_5',
@@ -34,9 +37,11 @@ async def health_check():
 
 @app.route(f'/webhook/{BOT_TOKEN}', methods=['POST'])
 async def webhook():
+    logger.info("Webhook hit")
     data = await request.get_json(force=True)
     update = Update.de_json(data, application.bot)
     if not update:
+        logger.info("Update parsing failed")
         return "Update parsing failed", 200
     await application.process_update(update)
     return "Webhook OK", 200
