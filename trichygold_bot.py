@@ -81,8 +81,7 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 job = context.job_queue.run_once(send_reminder, minutes * 60, data={'chat_id': chat_id, 'task': task})
                 logger.info(f"Scheduled reminder for task '{task}' in {minutes} minutes, task_msg_id: {msg.message_id}")
             else:
-                logger.error("Job queue is None! Skipping reminder.")
-                await update.message.reply_text("Error: Reminder scheduling failed.")
+                logger.warning("Job queue unavailable. Reminder not scheduled.")
             CONTEXT[update.message.message_id] = {
                 'employee': employee,
                 'task': task,
@@ -142,7 +141,7 @@ async def handle_employee_response(update: Update, context: ContextTypes.DEFAULT
         return
     
     text = update.message.text.lower() if update.message.text else None
-    if text == 'done' and not update.message.reply_to_message:  # Standalone "done" for testing
+    if text == 'done' and not update.message.reply_to_message:
         for boss_msg_id, task_info in list(CONTEXT.items()):
             if task_info['chat_id'] == chat_id:
                 employee = task_info['employee']
@@ -193,7 +192,6 @@ application.add_handler(MessageHandler(filters.TEXT | filters.Document.ALL | fil
 async def main():
     await application.initialize()
     await application.start()
-    application.job_queue.start()  # Explicitly start job queue
     await setup_webhook()
     config = uvicorn.Config(app=app, host="0.0.0.0", port=8080, loop="asyncio")
     server = uvicorn.Server(config)
