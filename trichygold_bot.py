@@ -95,29 +95,11 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except ValueError:
         await update.message.reply_text("Use: /assign <employee> <task> [minutes]")
 
-async def done_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = str(update.message.chat_id)
-    if chat_id != YOUR_ID:
-        await update.message.reply_text("Only boss can use /done!")
-        return
-    for boss_msg_id, task_info in list(CONTEXT.items()):
-        if task_info['chat_id'] == chat_id:
-            employee = task_info['employee']
-            task = task_info['task']
-            await context.bot.send_message(chat_id=YOUR_ID, text=f"{employee} completed '{task}'")
-            await update.message.reply_text(f"Task '{task}' marked complete. Reminder cancelled.")
-            if task_info['job']:
-                task_info['job'].schedule_removal()
-            del CONTEXT[boss_msg_id]
-            break
-    else:
-        await update.message.reply_text("No active task to mark done.")
-
 async def handle_boss_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if str(update.message.chat_id) != YOUR_ID:
         return
     if not update.message.reply_to_message or update.message.reply_to_message.message_id not in CONTEXT:
-        await update.message.reply_text("No task to attach media to.")
+        await update.message.reply_text("Reply to your /assign confirmation with photo/voice.")
         return
     
     boss_msg_id = update.message.reply_to_message.message_id
@@ -140,20 +122,6 @@ async def handle_employee_response(update: Update, context: ContextTypes.DEFAULT
     if chat_id not in EMPLOYEES.values():
         return
     
-    text = update.message.text.lower() if update.message.text else None
-    if text == 'done' and not update.message.reply_to_message:
-        for boss_msg_id, task_info in list(CONTEXT.items()):
-            if task_info['chat_id'] == chat_id:
-                employee = task_info['employee']
-                task = task_info['task']
-                await context.bot.send_message(chat_id=YOUR_ID, text=f"{employee} completed '{task}'")
-                await update.message.reply_text(f"Task '{task}' marked complete. Reminder cancelled.")
-                if task_info['job']:
-                    task_info['job'].schedule_removal()
-                del CONTEXT[boss_msg_id]
-                break
-        return
-    
     if not update.message.reply_to_message:
         return
     
@@ -164,7 +132,7 @@ async def handle_employee_response(update: Update, context: ContextTypes.DEFAULT
         if task_info['task_msg_id'] == reply_msg_id and task_info['chat_id'] == chat_id:
             employee = task_info['employee']
             task = task_info['task']
-            if text == 'done':
+            if update.message.text and update.message.text.lower() == 'done':
                 await context.bot.send_message(chat_id=YOUR_ID, text=f"{employee} completed '{task}'")
                 await update.message.reply_text("Task marked complete. Reminder cancelled.")
                 if task_info['job']:
@@ -185,7 +153,6 @@ async def handle_employee_response(update: Update, context: ContextTypes.DEFAULT
 
 application.add_handler(CommandHandler("start", start))
 application.add_handler(CommandHandler("assign", assign_task))
-application.add_handler(CommandHandler("done", done_command))
 application.add_handler(MessageHandler(filters.PHOTO | filters.VOICE & filters.User(user_id=int(YOUR_ID)), handle_boss_media))
 application.add_handler(MessageHandler(filters.TEXT | filters.Document.ALL | filters.VOICE & ~filters.User(user_id=int(YOUR_ID)), handle_employee_response))
 
