@@ -48,7 +48,7 @@ async def webhook():
     return "Webhook OK", 200
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(f"Chat ID: {update.message.chat_id}. Boss: /assign <employee> <task> [minutes] + photo/voice. Employees: reply to task with 'done' or text/file/voice. Use /done to mark latest task complete.")
+    await update.message.reply_text(f"Chat ID: {update.message.chat_id}")
 
 async def send_reminder(context: ContextTypes.DEFAULT_TYPE):
     job = context.job
@@ -74,13 +74,14 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if employee in EMPLOYEES:
             chat_id = EMPLOYEES[employee]
-            msg = await context.bot.send_message(chat_id=chat_id, text=f"Task: {task} (Reply to this with 'done' or text/file/voice)")
-            await update.message.reply_text(f"Sent to {employee}: {task}. Reminder in {minutes} min. Reply with photo/voice to this.")
+            msg = await context.bot.send_message(chat_id=chat_id, text=f"Task: {task}")
+            await update.message.reply_text(f"Sent to {employee}: {task}. Reminder in {minutes} min.")
             if context.job_queue is None:
                 logger.error("Job queue is None!")
                 await update.message.reply_text("Error: Reminder scheduling failed.")
                 return
             job = context.job_queue.run_once(send_reminder, minutes * 60, data={'chat_id': chat_id, 'task': task})
+            logger.info(f"Scheduled reminder for task '{task}' in {minutes} minutes")
             CONTEXT[update.message.message_id] = {
                 'employee': employee,
                 'task': task,
@@ -115,7 +116,7 @@ async def handle_boss_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if str(update.message.chat_id) != YOUR_ID:
         return
     if not update.message.reply_to_message or update.message.reply_to_message.message_id not in CONTEXT:
-        await update.message.reply_text("Reply to your /assign confirmation with photo/voice.")
+        await update.message.reply_text("No task to attach media to.")
         return
     
     boss_msg_id = update.message.reply_to_message.message_id
@@ -139,7 +140,6 @@ async def handle_employee_response(update: Update, context: ContextTypes.DEFAULT
         return
     
     if not update.message.reply_to_message:
-        await update.message.reply_text("Reply to your task message with 'done' or text/file/voice.")
         return
     
     reply_msg_id = update.message.reply_to_message.message_id
@@ -167,8 +167,6 @@ async def handle_employee_response(update: Update, context: ContextTypes.DEFAULT
                 await context.bot.send_voice(chat_id=YOUR_ID, voice=voice_id, caption=f"{employee} on '{task}'")
                 await update.message.reply_text("Voice sent to boss.")
             break
-    else:
-        await update.message.reply_text("Reply to your task message with 'done' or text/file/voice.")
 
 application.add_handler(CommandHandler("start", start))
 application.add_handler(CommandHandler("assign", assign_task))
@@ -176,14 +174,18 @@ application.add_handler(CommandHandler("done", done_command))
 application.add_handler(MessageHandler(filters.PHOTO | filters.VOICE & filters.User(user_id=int(YOUR_ID)), handle_boss_media))
 application.add_handler(MessageHandler(filters.TEXT | filters.Document.ALL | filters.VOICE & ~filters.User(user_id=int(YOUR_ID)), handle_employee_response))
 
+async def run_application():
+    await application.initialize()
+    await application.start()
+    await asyncio.Event().wait()  # Keep running indefinitely
+
 async def setup_webhook():
     url = f"https://trichygold-bot.onrender.com/webhook/{BOT_TOKEN}"
-    await application.initialize()
-    await application.start()  # Start job queue
     response = await application.bot.set_webhook(url=url)
     logger.info(f"Webhook set: {response}")
 
 async def main():
+    asyncio.create_task(run_application())
     await setup_webhook()
     config = uvicorn.Config(app=app, host="0.0.0.0", port=8080, loop="asyncio")
     server = uvicorn.Server(config)
