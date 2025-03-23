@@ -48,7 +48,7 @@ async def webhook():
     return "Webhook OK", 200
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(f"Chat ID: {update.message.chat_id}. Boss: /assign <employee> <task> [minutes] + photo/voice. Employees: reply with text/file/voice, 'done' to complete.")
+    await update.message.reply_text(f"Chat ID: {update.message.chat_id}. Boss: /assign <employee> <task> [minutes] + photo/voice. Employees: reply to task with 'done' or text/file/voice. Use /done to mark latest task complete.")
 
 async def send_reminder(context: ContextTypes.DEFAULT_TYPE):
     job = context.job
@@ -65,18 +65,21 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if len(args) < 2:
             raise ValueError
         employee = args[0].lower()
-        # Check if last arg is minutes, otherwise it's part of task
         if len(args) > 2 and args[-1].isdigit():
             task = ' '.join(args[1:-1])
             minutes = int(args[-1])
         else:
             task = ' '.join(args[1:])
-            minutes = 60  # Default
+            minutes = 60
         
         if employee in EMPLOYEES:
             chat_id = EMPLOYEES[employee]
-            msg = await context.bot.send_message(chat_id=chat_id, text=f"Task: {task} (Reply with text/file/voice, 'done' to complete)")
-            await update.message.reply_text(f"Sent to {employee}: {task}. Reminder in {minutes} min. Reply with photo/voice if needed.")
+            msg = await context.bot.send_message(chat_id=chat_id, text=f"Task: {task} (Reply to this with 'done' or text/file/voice)")
+            await update.message.reply_text(f"Sent to {employee}: {task}. Reminder in {minutes} min. Reply with photo/voice to this.")
+            if context.job_queue is None:
+                logger.error("Job queue is None!")
+                await update.message.reply_text("Error: Reminder scheduling failed.")
+                return
             job = context.job_queue.run_once(send_reminder, minutes * 60, data={'chat_id': chat_id, 'task': task})
             CONTEXT[update.message.message_id] = {
                 'employee': employee,
@@ -90,11 +93,29 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except ValueError:
         await update.message.reply_text("Use: /assign <employee> <task> [minutes]")
 
+async def done_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = str(update.message.chat_id)
+    if chat_id != YOUR_ID:
+        await update.message.reply_text("Only boss can use /done!")
+        return
+    for boss_msg_id, task_info in list(CONTEXT.items()):
+        if task_info['chat_id'] == chat_id:
+            employee = task_info['employee']
+            task = task_info['task']
+            await context.bot.send_message(chat_id=YOUR_ID, text=f"{employee} completed '{task}'")
+            await update.message.reply_text(f"Task '{task}' marked complete. Reminder cancelled.")
+            if task_info['job']:
+                task_info['job'].schedule_removal()
+            del CONTEXT[boss_msg_id]
+            break
+    else:
+        await update.message.reply_text("No active task to mark done.")
+
 async def handle_boss_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if str(update.message.chat_id) != YOUR_ID:
         return
     if not update.message.reply_to_message or update.message.reply_to_message.message_id not in CONTEXT:
-        await update.message.reply_text("Reply to your /assign message with photo/voice.")
+        await update.message.reply_text("Reply to your /assign confirmation with photo/voice.")
         return
     
     boss_msg_id = update.message.reply_to_message.message_id
@@ -116,12 +137,15 @@ async def handle_employee_response(update: Update, context: ContextTypes.DEFAULT
     chat_id = str(update.message.chat_id)
     if chat_id not in EMPLOYEES.values():
         return
+    
     if not update.message.reply_to_message:
-        await update.message.reply_text("Reply to your task message with text/file/voice.")
+        await update.message.reply_text("Reply to your task message with 'done' or text/file/voice.")
         return
     
     reply_msg_id = update.message.reply_to_message.message_id
+    logger.info(f"Reply received to message ID: {reply_msg_id}")
     for boss_msg_id, task_info in list(CONTEXT.items()):
+        logger.info(f"Checking task_msg_id: {task_info['task_msg_id']} against reply_msg_id: {reply_msg_id}")
         if task_info['task_msg_id'] == reply_msg_id and task_info['chat_id'] == chat_id:
             employee = task_info['employee']
             task = task_info['task']
@@ -144,16 +168,18 @@ async def handle_employee_response(update: Update, context: ContextTypes.DEFAULT
                 await update.message.reply_text("Voice sent to boss.")
             break
     else:
-        await update.message.reply_text("Reply to your task message with text/file/voice.")
+        await update.message.reply_text("Reply to your task message with 'done' or text/file/voice.")
 
 application.add_handler(CommandHandler("start", start))
 application.add_handler(CommandHandler("assign", assign_task))
+application.add_handler(CommandHandler("done", done_command))
 application.add_handler(MessageHandler(filters.PHOTO | filters.VOICE & filters.User(user_id=int(YOUR_ID)), handle_boss_media))
 application.add_handler(MessageHandler(filters.TEXT | filters.Document.ALL | filters.VOICE & ~filters.User(user_id=int(YOUR_ID)), handle_employee_response))
 
 async def setup_webhook():
     url = f"https://trichygold-bot.onrender.com/webhook/{BOT_TOKEN}"
     await application.initialize()
+    await application.start()  # Start job queue
     response = await application.bot.set_webhook(url=url)
     logger.info(f"Webhook set: {response}")
 
