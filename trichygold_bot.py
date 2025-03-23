@@ -98,12 +98,14 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_boss_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if str(update.message.chat_id) != YOUR_ID:
         return
-    if not update.message.reply_to_message or update.message.reply_to_message.message_id not in CONTEXT:
-        await update.message.reply_text("Reply to your /assign confirmation with photo/voice.")
+    
+    tasks = list(CONTEXT.items())
+    if not tasks:
+        await update.message.reply_text("No active tasks. Use /assign first.")  # Optional guidance
         return
     
-    boss_msg_id = update.message.reply_to_message.message_id
-    task_info = CONTEXT[boss_msg_id]
+    # Attach to the latest task
+    boss_msg_id, task_info = tasks[-1]
     employee_chat_id = task_info['chat_id']
     
     if update.message.photo:
@@ -114,8 +116,6 @@ async def handle_boss_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
         voice_file = update.message.voice.file_id
         await context.bot.send_voice(chat_id=employee_chat_id, voice=voice_file, caption=f"Task: {task_info['task']}")
         await update.message.reply_text(f"Voice sent to {task_info['employee']}.")
-    else:
-        await update.message.reply_text("Send a photo or voice message.")
 
 async def handle_employee_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.message.chat_id)
