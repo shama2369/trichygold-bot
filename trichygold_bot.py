@@ -81,7 +81,7 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text("Error: Reminder scheduling failed.")
                 return
             job = context.job_queue.run_once(send_reminder, minutes * 60, data={'chat_id': chat_id, 'task': task})
-            logger.info(f"Scheduled reminder for task '{task}' in {minutes} minutes")
+            logger.info(f"Scheduled reminder for task '{task}' in {minutes} minutes, task_msg_id: {msg.message_id}")
             CONTEXT[update.message.message_id] = {
                 'employee': employee,
                 'task': task,
@@ -89,6 +89,7 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 'task_msg_id': msg.message_id,
                 'job': job
             }
+            logger.info(f"CONTEXT updated with boss_msg_id: {update.message.message_id}")
         else:
             await update.message.reply_text(f"'{employee}' not found. Valid employees: {', '.join(EMPLOYEES.keys())}")
     except ValueError:
@@ -179,17 +180,19 @@ async def run_application():
     await application.start()
     await asyncio.Event().wait()  # Keep running indefinitely
 
-async def setup_webhook():
-    url = f"https://trichygold-bot.onrender.com/webhook/{BOT_TOKEN}"
-    response = await application.bot.set_webhook(url=url)
-    logger.info(f"Webhook set: {response}")
-
 async def main():
-    asyncio.create_task(run_application())
+    # Ensure application is fully started before webhook
+    await application.initialize()
+    await application.start()
     await setup_webhook()
     config = uvicorn.Config(app=app, host="0.0.0.0", port=8080, loop="asyncio")
     server = uvicorn.Server(config)
     await server.serve()
+
+async def setup_webhook():
+    url = f"https://trichygold-bot.onrender.com/webhook/{BOT_TOKEN}"
+    response = await application.bot.set_webhook(url=url)
+    logger.info(f"Webhook set: {response}")
 
 if __name__ == '__main__':
     asyncio.run(main())
