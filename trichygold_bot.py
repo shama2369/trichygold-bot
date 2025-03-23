@@ -76,12 +76,13 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
             chat_id = EMPLOYEES[employee]
             msg = await context.bot.send_message(chat_id=chat_id, text=f"Task: {task}")
             await update.message.reply_text(f"Sent to {employee}: {task}. Reminder in {minutes} min.")
-            if context.job_queue is None:
-                logger.error("Job queue is None!")
+            job = None
+            if context.job_queue is not None:
+                job = context.job_queue.run_once(send_reminder, minutes * 60, data={'chat_id': chat_id, 'task': task})
+                logger.info(f"Scheduled reminder for task '{task}' in {minutes} minutes, task_msg_id: {msg.message_id}")
+            else:
+                logger.error("Job queue is None! Skipping reminder.")
                 await update.message.reply_text("Error: Reminder scheduling failed.")
-                return
-            job = context.job_queue.run_once(send_reminder, minutes * 60, data={'chat_id': chat_id, 'task': task})
-            logger.info(f"Scheduled reminder for task '{task}' in {minutes} minutes, task_msg_id: {msg.message_id}")
             CONTEXT[update.message.message_id] = {
                 'employee': employee,
                 'task': task,
@@ -140,6 +141,20 @@ async def handle_employee_response(update: Update, context: ContextTypes.DEFAULT
     if chat_id not in EMPLOYEES.values():
         return
     
+    text = update.message.text.lower() if update.message.text else None
+    if text == 'done' and not update.message.reply_to_message:  # Standalone "done" for testing
+        for boss_msg_id, task_info in list(CONTEXT.items()):
+            if task_info['chat_id'] == chat_id:
+                employee = task_info['employee']
+                task = task_info['task']
+                await context.bot.send_message(chat_id=YOUR_ID, text=f"{employee} completed '{task}'")
+                await update.message.reply_text(f"Task '{task}' marked complete. Reminder cancelled.")
+                if task_info['job']:
+                    task_info['job'].schedule_removal()
+                del CONTEXT[boss_msg_id]
+                break
+        return
+    
     if not update.message.reply_to_message:
         return
     
@@ -150,7 +165,7 @@ async def handle_employee_response(update: Update, context: ContextTypes.DEFAULT
         if task_info['task_msg_id'] == reply_msg_id and task_info['chat_id'] == chat_id:
             employee = task_info['employee']
             task = task_info['task']
-            if update.message.text and update.message.text.lower() == 'done':
+            if text == 'done':
                 await context.bot.send_message(chat_id=YOUR_ID, text=f"{employee} completed '{task}'")
                 await update.message.reply_text("Task marked complete. Reminder cancelled.")
                 if task_info['job']:
@@ -175,15 +190,10 @@ application.add_handler(CommandHandler("done", done_command))
 application.add_handler(MessageHandler(filters.PHOTO | filters.VOICE & filters.User(user_id=int(YOUR_ID)), handle_boss_media))
 application.add_handler(MessageHandler(filters.TEXT | filters.Document.ALL | filters.VOICE & ~filters.User(user_id=int(YOUR_ID)), handle_employee_response))
 
-async def run_application():
-    await application.initialize()
-    await application.start()
-    await asyncio.Event().wait()  # Keep running indefinitely
-
 async def main():
-    # Ensure application is fully started before webhook
     await application.initialize()
     await application.start()
+    application.job_queue.start()  # Explicitly start job queue
     await setup_webhook()
     config = uvicorn.Config(app=app, host="0.0.0.0", port=8080, loop="asyncio")
     server = uvicorn.Server(config)
