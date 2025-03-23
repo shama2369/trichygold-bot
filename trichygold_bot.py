@@ -75,7 +75,7 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if employee in EMPLOYEES:
             chat_id = EMPLOYEES[employee]
             msg = await context.bot.send_message(chat_id=chat_id, text=f"Task: {task}")
-            await update.message.reply_text(f"Sent to {employee}: {task}. Reminder in {minutes} min.")
+            await update.message.reply_text(f"Sent to {employee}: {task}. Reminder in {minutes} min.")  # Always show
             job = None
             if context.job_queue is not None:
                 job = context.job_queue.run_once(send_reminder, minutes * 60, data={'chat_id': chat_id, 'task': task})
@@ -101,10 +101,9 @@ async def handle_boss_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     tasks = list(CONTEXT.items())
     if not tasks:
-        await update.message.reply_text("No active tasks. Use /assign first.")  # Optional guidance
+        await update.message.reply_text("No active tasks. Use /assign first.")
         return
     
-    # Attach to the latest task
     boss_msg_id, task_info = tasks[-1]
     employee_chat_id = task_info['chat_id']
     
@@ -134,9 +133,9 @@ async def handle_employee_response(update: Update, context: ContextTypes.DEFAULT
             task = task_info['task']
             if update.message.text and update.message.text.lower() == 'done':
                 await context.bot.send_message(chat_id=YOUR_ID, text=f"{employee} completed '{task}'")
-                await update.message.reply_text("Task marked complete. Reminder cancelled.")
+                await update.message.reply_text("✅")  # Just green tick
                 if task_info['job']:
-                    task_info['job'].schedule_removal()
+                    task_info['job'].schedule_removal()  # Silent cancel
                 del CONTEXT[boss_msg_id]
             elif update.message.text:
                 await context.bot.send_message(chat_id=YOUR_ID, text=f"{employee} on '{task}': {update.message.text}")
