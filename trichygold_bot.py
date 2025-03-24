@@ -30,10 +30,13 @@ app = Quart(__name__)
 application = Application.builder().token(BOT_TOKEN).build()
 
 CONTEXT = {}
+CONCERN_CONTEXT = {}
 
+# === UPTIME PING CODE STARTS HERE ===
 @app.route('/')
 async def health_check():
-    return "Bot is running", 200
+    return "Bot is running", 200  # UptimeRobot pings this
+# === UPTIME PING CODE ENDS HERE ===
 
 @app.route(f'/webhook/{BOT_TOKEN}', methods=['POST'])
 async def webhook():
@@ -58,7 +61,7 @@ async def send_reminder(context: ContextTypes.DEFAULT_TYPE):
 
 async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if str(update.message.chat_id) != YOUR_ID:
-        await update.message.reply_text("Only boss can assign!")
+        await update.message.reply_text("Only Madam can assign!")
         return
     try:
         args = context.args
@@ -75,13 +78,13 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if employee in EMPLOYEES:
             chat_id = EMPLOYEES[employee]
             msg = await context.bot.send_message(chat_id=chat_id, text=f"Task: {task}")
-            await update.message.reply_text(f"Sent to {employee}: {task}. Reminder in {minutes} min.")
-            job = None
-            if context.job_queue is not None:
-                job = context.job_queue.run_once(send_reminder, minutes * 60, data={'chat_id': chat_id, 'task': task})
-                logger.info(f"Scheduled reminder for task '{task}' in {minutes} minutes, task_msg_id: {msg.message_id}")
-            else:
-                logger.warning("Job queue unavailable. Reminder not scheduled.")
+            await update.message.reply_text(f"Sent to {employee}: {task}. Reminders every {minutes} min.")
+            if context.job_queue is None:
+                logger.error("Job queue is None!")
+                await update.message.reply_text("Error: Reminder scheduling failed.")
+                return
+            job = context.job_queue.run_repeating(send_reminder, interval=minutes * 60, first=minutes * 60, data={'chat_id': chat_id, 'task': task})
+            logger.info(f"Scheduled repeating reminder for task '{task}' every {minutes} minutes")
             CONTEXT[update.message.message_id] = {
                 'employee': employee,
                 'task': task,
@@ -89,30 +92,94 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 'task_msg_id': msg.message_id,
                 'job': job
             }
-            logger.info(f"CONTEXT updated with boss_msg_id: {update.message.message_id}")
         else:
             await update.message.reply_text(f"'{employee}' not found. Valid employees: {', '.join(EMPLOYEES.keys())}")
     except ValueError:
         await update.message.reply_text("Use: /assign <employee> <task> [minutes]")
 
+async def concern(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = str(update.message.chat_id)
+    if chat_id not in EMPLOYEES.values():
+        await update.message.reply_text("Only employees can raise concerns!")
+        return
+    args = context.args
+    employee_name = [name for name, eid in EMPLOYEES.items() if eid == chat_id][0]
+    
+    if args:
+        concern_message = ' '.join(args)
+        await context.bot.send_message(chat_id=YOUR_ID, text=f"{employee_name} raised concern: {concern_message}")
+        await update.message.reply_text("Concern sent to Madam.")
+    else:
+        msg = await update.message.reply_text("Send your concern as voice or file.")
+        CONCERN_CONTEXT[chat_id] = {'prompt_msg_id': msg.message_id, 'employee': employee_name}
+
+async def handle_concern_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = str(update.message.chat_id)
+    if chat_id not in EMPLOYEES.values() or chat_id not in CONCERN_CONTEXT:
+        return
+    
+    if not update.message.reply_to_message:
+        return
+    
+    concern_info = CONCERN_CONTEXT.get(chat_id)
+    reply_msg_id = update.message.reply_to_message.message_id
+    if reply_msg_id != concern_info['prompt_msg_id']:
+        return
+    
+    employee_name = concern_info['employee']
+    if update.message.voice:
+        voice_id = update.message.voice.file_id
+        await context.bot.send_voice(chat_id=YOUR_ID, voice=voice_id, caption=f"{employee_name} raised concern")
+        await update.message.reply_text("Voice concern sent to Madam.")
+    elif update.message.document or update.message.photo:
+        file_id = update.message.document.file_id if update.message.document else update.message.photo[-1].file_id
+        await context.bot.send_document(chat_id=YOUR_ID, document=file_id, caption=f"{employee_name} raised concern")
+        await update.message.reply_text("File concern sent to Madam.")
+    else:
+        await update.message.reply_text("Please send a voice or file.")
+        return
+    
+    del CONCERN_CONTEXT[chat_id]
+
+async def done_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = str(update.message.chat_id)
+    if chat_id != YOUR_ID:
+        await update.message.reply_text("Only Madam can use /done!")
+        return
+    for boss_msg_id, task_info in list(CONTEXT.items()):
+        if task_info['chat_id'] == chat_id:
+            employee = task_info['employee']
+            task = task_info['task']
+            await context.bot.send_message(chat_id=YOUR_ID, text=f"{employee} completed '{task}'")
+            await update.message.reply_text(f"Task '{task}' marked complete. Reminders stopped.")
+            if task_info['job']:
+                task_info['job'].schedule_removal()
+            del CONTEXT[boss_msg_id]
+            break
+    else:
+        await update.message.reply_text("No active task to mark done.")
+
 async def handle_boss_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if str(update.message.chat_id) != YOUR_ID:
         return
-    
-    tasks = list(CONTEXT.items())
-    if not tasks:
-        await update.message.reply_text("No active tasks. Use /assign first.")
+    if not update.message.reply_to_message or update.message.reply_to_message.message_id not in CONTEXT:
+        await update.message.reply_text("No task to attach media to.")
         return
     
-    boss_msg_id, task_info = tasks[-1]
+    boss_msg_id = update.message.reply_to_message.message_id
+    task_info = CONTEXT[boss_msg_id]
     employee_chat_id = task_info['chat_id']
     
     if update.message.photo:
-        await context.bot.send_photo(chat_id=employee_chat_id, photo=update.message.photo[-1].file_id, caption=f"Task: {task_info['task']}")
+        photo_file = update.message.photo[-1].file_id
+        await context.bot.send_photo(chat_id=employee_chat_id, photo=photo_file, caption=f"Task: {task_info['task']}")
         await update.message.reply_text(f"Photo sent to {task_info['employee']}.")
     elif update.message.voice:
-        await context.bot.send_voice(chat_id=employee_chat_id, voice=update.message.voice.file_id, caption=f"Task: {task_info['task']}")
+        voice_file = update.message.voice.file_id
+        await context.bot.send_voice(chat_id=employee_chat_id, voice=voice_file, caption=f"Task: {task_info['task']}")
         await update.message.reply_text(f"Voice sent to {task_info['employee']}.")
+    else:
+        await update.message.reply_text("Send a photo or voice message.")
 
 async def handle_employee_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.message.chat_id)
@@ -124,47 +191,54 @@ async def handle_employee_response(update: Update, context: ContextTypes.DEFAULT
     
     reply_msg_id = update.message.reply_to_message.message_id
     logger.info(f"Reply received to message ID: {reply_msg_id}")
+    
     for boss_msg_id, task_info in list(CONTEXT.items()):
-        logger.info(f"Checking task_msg_id: {task_info['task_msg_id']} against reply_msg_id: {reply_msg_id}")
         if task_info['task_msg_id'] == reply_msg_id and task_info['chat_id'] == chat_id:
             employee = task_info['employee']
             task = task_info['task']
             if update.message.text and update.message.text.lower() == 'done':
                 await context.bot.send_message(chat_id=YOUR_ID, text=f"{employee} completed '{task}'")
-                await update.message.reply_text("✅")  # Green tick only
+                await update.message.reply_text("Task marked complete. Reminders stopped.")
                 if task_info['job']:
-                    task_info['job'].schedule_removal()  # Silent cancel
+                    task_info['job'].schedule_removal()
                 del CONTEXT[boss_msg_id]
             elif update.message.text:
                 await context.bot.send_message(chat_id=YOUR_ID, text=f"{employee} on '{task}': {update.message.text}")
-                await update.message.reply_text("Response sent to boss.")
+                await update.message.reply_text("Response sent to Madam.")
             elif update.message.document:
                 file_id = update.message.document.file_id
                 await context.bot.send_document(chat_id=YOUR_ID, document=file_id, caption=f"{employee} on '{task}'")
-                await update.message.reply_text("File sent to boss.")
+                await update.message.reply_text("File sent to Madam.")
             elif update.message.voice:
                 voice_id = update.message.voice.file_id
                 await context.bot.send_voice(chat_id=YOUR_ID, voice=voice_id, caption=f"{employee} on '{task}'")
-                await update.message.reply_text("Voice sent to boss.")
-            break
+                await update.message.reply_text("Voice sent to Madam.")
+            return
 
 application.add_handler(CommandHandler("start", start))
 application.add_handler(CommandHandler("assign", assign_task))
+application.add_handler(CommandHandler("concern", concern))
+application.add_handler(CommandHandler("done", done_command))
 application.add_handler(MessageHandler(filters.PHOTO | filters.VOICE & filters.User(user_id=int(YOUR_ID)), handle_boss_media))
 application.add_handler(MessageHandler(filters.TEXT | filters.Document.ALL | filters.VOICE & ~filters.User(user_id=int(YOUR_ID)), handle_employee_response))
+application.add_handler(MessageHandler(filters.VOICE | filters.Document.ALL | filters.PHOTO & ~filters.User(user_id=int(YOUR_ID)), handle_concern_response))
 
-async def main():
+async def run_application():
     await application.initialize()
     await application.start()
-    await setup_webhook()
-    config = uvicorn.Config(app=app, host="0.0.0.0", port=8080, loop="asyncio")
-    server = uvicorn.Server(config)
-    await server.serve()
+    await asyncio.Event().wait()
 
 async def setup_webhook():
     url = f"https://trichygold-bot.onrender.com/webhook/{BOT_TOKEN}"
     response = await application.bot.set_webhook(url=url)
     logger.info(f"Webhook set: {response}")
+
+async def main():
+    asyncio.create_task(run_application())
+    await setup_webhook()
+    config = uvicorn.Config(app=app, host="0.0.0.0", port=8080, loop="asyncio")
+    server = uvicorn.Server(config)
+    await server.serve()
 
 if __name__ == '__main__':
     asyncio.run(main())
