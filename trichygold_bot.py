@@ -131,9 +131,9 @@ async def handle_employee_response(update: Update, context: ContextTypes.DEFAULT
             task = task_info['task']
             if update.message.text and update.message.text.lower() == 'done':
                 await context.bot.send_message(chat_id=YOUR_ID, text=f"{employee} completed '{task}'")
-                await update.message.reply_text("Task marked complete. Reminder cancelled.")
+                await update.message.reply_text("✅")  # Green tick only
                 if task_info['job']:
-                    task_info['job'].schedule_removal()
+                    task_info['job'].schedule_removal()  # Silent cancel
                 del CONTEXT[boss_msg_id]
             elif update.message.text:
                 await context.bot.send_message(chat_id=YOUR_ID, text=f"{employee} on '{task}': {update.message.text}")
@@ -141,11 +141,11 @@ async def handle_employee_response(update: Update, context: ContextTypes.DEFAULT
             elif update.message.document:
                 file_id = update.message.document.file_id
                 await context.bot.send_document(chat_id=YOUR_ID, document=file_id, caption=f"{employee} on '{task}'")
-                await update.message.reply_text("File sent to boss.")  # Fixed to "boss"
+                await update.message.reply_text("File sent to boss.")
             elif update.message.voice:
                 voice_id = update.message.voice.file_id
                 await context.bot.send_voice(chat_id=YOUR_ID, voice=voice_id, caption=f"{employee} on '{task}'")
-                await update.message.reply_text("Voice sent to boss.")  # Fixed to "boss"
+                await update.message.reply_text("Voice sent to boss.")
             break
 
 application.add_handler(CommandHandler("start", start))
