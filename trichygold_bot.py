@@ -75,7 +75,7 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if employee in EMPLOYEES:
             chat_id = EMPLOYEES[employee]
             msg = await context.bot.send_message(chat_id=chat_id, text=f"Task: {task}")
-            await update.message.reply_text(f"Sent to {employee}: {task}. Reminder in {minutes} min.")  # Always show
+            await update.message.reply_text(f"Sent to {employee}: {task}. Reminder in {minutes} min.")
             job = None
             if context.job_queue is not None:
                 job = context.job_queue.run_once(send_reminder, minutes * 60, data={'chat_id': chat_id, 'task': task})
@@ -108,12 +108,10 @@ async def handle_boss_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     employee_chat_id = task_info['chat_id']
     
     if update.message.photo:
-        photo_file = update.message.photo[-1].file_id
-        await context.bot.send_photo(chat_id=employee_chat_id, photo=photo_file, caption=f"Task: {task_info['task']}")
+        await context.bot.send_photo(chat_id=employee_chat_id, photo=update.message.photo[-1].file_id, caption=f"Task: {task_info['task']}")
         await update.message.reply_text(f"Photo sent to {task_info['employee']}.")
     elif update.message.voice:
-        voice_file = update.message.voice.file_id
-        await context.bot.send_voice(chat_id=employee_chat_id, voice=voice_file, caption=f"Task: {task_info['task']}")
+        await context.bot.send_voice(chat_id=employee_chat_id, voice=update.message.voice.file_id, caption=f"Task: {task_info['task']}")
         await update.message.reply_text(f"Voice sent to {task_info['employee']}.")
 
 async def handle_employee_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -133,9 +131,9 @@ async def handle_employee_response(update: Update, context: ContextTypes.DEFAULT
             task = task_info['task']
             if update.message.text and update.message.text.lower() == 'done':
                 await context.bot.send_message(chat_id=YOUR_ID, text=f"{employee} completed '{task}'")
-                await update.message.reply_text("✅")  # Just green tick
+                await update.message.reply_text("Task marked complete. Reminder cancelled.")
                 if task_info['job']:
-                    task_info['job'].schedule_removal()  # Silent cancel
+                    task_info['job'].schedule_removal()
                 del CONTEXT[boss_msg_id]
             elif update.message.text:
                 await context.bot.send_message(chat_id=YOUR_ID, text=f"{employee} on '{task}': {update.message.text}")
@@ -143,11 +141,11 @@ async def handle_employee_response(update: Update, context: ContextTypes.DEFAULT
             elif update.message.document:
                 file_id = update.message.document.file_id
                 await context.bot.send_document(chat_id=YOUR_ID, document=file_id, caption=f"{employee} on '{task}'")
-                await update.message.reply_text("File sent to boss.")
+                await update.message.reply_text("File sent to boss.")  # Fixed to "boss"
             elif update.message.voice:
                 voice_id = update.message.voice.file_id
                 await context.bot.send_voice(chat_id=YOUR_ID, voice=voice_id, caption=f"{employee} on '{task}'")
-                await update.message.reply_text("Voice sent to boss.")
+                await update.message.reply_text("Voice sent to boss.")  # Fixed to "boss"
             break
 
 application.add_handler(CommandHandler("start", start))
