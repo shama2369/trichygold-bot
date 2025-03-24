@@ -32,11 +32,9 @@ application = Application.builder().token(BOT_TOKEN).build()
 CONTEXT = {}
 CONCERN_CONTEXT = {}
 
-# === UPTIME PING CODE STARTS HERE ===
 @app.route('/')
 async def health_check():
     return "Bot is running", 200  # UptimeRobot pings this
-# === UPTIME PING CODE ENDS HERE ===
 
 @app.route(f'/webhook/{BOT_TOKEN}', methods=['POST'])
 async def webhook():
@@ -160,14 +158,16 @@ async def done_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("No active task to mark done.")
 
 async def handle_boss_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if str(update.message.chat_id) != YOUR_ID:
-        return
-    if not update.message.reply_to_message or update.message.reply_to_message.message_id not in CONTEXT:
-        await update.message.reply_text("No task to attach media to.")
+    chat_id = str(update.message.chat_id)
+    if chat_id != YOUR_ID or not update.message.reply_to_message:
         return
     
-    boss_msg_id = update.message.reply_to_message.message_id
-    task_info = CONTEXT[boss_msg_id]
+    reply_msg_id = update.message.reply_to_message.message_id
+    if reply_msg_id not in CONTEXT:
+        await update.message.reply_text("Reply to an /assign confirmation with photo/voice.")
+        return
+    
+    task_info = CONTEXT[reply_msg_id]
     employee_chat_id = task_info['chat_id']
     
     if update.message.photo:
@@ -183,10 +183,7 @@ async def handle_boss_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_employee_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.message.chat_id)
-    if chat_id not in EMPLOYEES.values():
-        return
-    
-    if not update.message.reply_to_message:
+    if chat_id not in EMPLOYEES.values() or not update.message.reply_to_message:
         return
     
     reply_msg_id = update.message.reply_to_message.message_id
@@ -219,9 +216,9 @@ application.add_handler(CommandHandler("start", start))
 application.add_handler(CommandHandler("assign", assign_task))
 application.add_handler(CommandHandler("concern", concern))
 application.add_handler(CommandHandler("done", done_command))
-application.add_handler(MessageHandler(filters.PHOTO | filters.VOICE & filters.User(user_id=int(YOUR_ID)), handle_boss_media))
-application.add_handler(MessageHandler(filters.TEXT | filters.Document.ALL | filters.VOICE & ~filters.User(user_id=int(YOUR_ID)), handle_employee_response))
-application.add_handler(MessageHandler(filters.VOICE | filters.Document.ALL | filters.PHOTO & ~filters.User(user_id=int(YOUR_ID)), handle_concern_response))
+application.add_handler(MessageHandler(filters.PHOTO | filters.VOICE & filters.User(user_id=int(YOUR_ID)) & filters.REPLY, handle_boss_media))
+application.add_handler(MessageHandler(filters.TEXT | filters.Document.ALL | filters.VOICE & ~filters.User(user_id=int(YOUR_ID)) & filters.REPLY, handle_employee_response))
+application.add_handler(MessageHandler((filters.VOICE | filters.Document.ALL | filters.PHOTO) & ~filters.User(user_id=int(YOUR_ID)) & filters.REPLY, handle_concern_response))
 
 async def run_application():
     await application.initialize()
