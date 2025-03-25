@@ -76,14 +76,14 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if employee in EMPLOYEES:
             chat_id = EMPLOYEES[employee]
             msg = await context.bot.send_message(chat_id=chat_id, text=f"Task: {task}")
-            confirmation = await update.message.reply_text(f"Sent to {employee}: {task}. Reminders every {minutes} min.")
+            confirmation = await update.message.reply_text(f"Sent to {employee}: {task}.")
             if context.job_queue is None:
                 logger.error("Job queue is None!")
                 await update.message.reply_text("Error: Reminder scheduling failed.")
                 return
             job = context.job_queue.run_repeating(send_reminder, interval=minutes * 60, first=minutes * 60, data={'chat_id': chat_id, 'task': task})
             logger.info(f"Scheduled repeating reminder for task '{task}' every {minutes} minutes")
-            CONTEXT[confirmation.message_id] = {  # Store confirmation ID, not command ID
+            CONTEXT[confirmation.message_id] = {
                 'employee': employee,
                 'task': task,
                 'chat_id': chat_id,
@@ -148,11 +148,9 @@ async def done_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if task_info['chat_id'] == chat_id:
             employee = task_info['employee']
             task = task_info['task']
-            await context.bot.send_message(chat_id=YOUR_ID, text=f"{employee} completed '{task}'")
-            await update.message.reply_text(f"Task '{task}' marked complete. Reminders stopped.")
-            if task_info['job']:
-                task_info['job'].schedule_removal()
-            del CONTEXT[boss_msg_id]
+            await context.bot.send_message(chat_id=YOUR_ID, text=f"{employee} completed '{task}' ✅")
+            await update.message.reply_text(f"Task marked complete ✅.")
+            del CONTEXT[boss_msg_id]  # Clear task, reminders continue
             break
     else:
         await update.message.reply_text("No active task to mark done.")
@@ -164,7 +162,7 @@ async def handle_boss_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     reply_msg_id = update.message.reply_to_message.message_id
     if reply_msg_id not in CONTEXT:
-        return  # Silently ignore if not replying to an assignment confirmation
+        return
     
     task_info = CONTEXT[reply_msg_id]
     employee_chat_id = task_info['chat_id']
@@ -172,10 +170,12 @@ async def handle_boss_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.photo:
         photo_file = update.message.photo[-1].file_id
         await context.bot.send_photo(chat_id=employee_chat_id, photo=photo_file, caption=f"Task clarification: {task_info['task']}")
+        await context.bot.send_photo(chat_id=YOUR_ID, photo=photo_file, caption=f"Clarification sent to {task_info['employee']}: {task_info['task']}")
         await update.message.reply_text(f"Photo clarification sent to {task_info['employee']}.")
     elif update.message.voice:
         voice_file = update.message.voice.file_id
         await context.bot.send_voice(chat_id=employee_chat_id, voice=voice_file, caption=f"Task clarification: {task_info['task']}")
+        await context.bot.send_voice(chat_id=YOUR_ID, voice=voice_file, caption=f"Clarification sent to {task_info['employee']}: {task_info['task']}")
         await update.message.reply_text(f"Voice clarification sent to {task_info['employee']}.")
     else:
         await update.message.reply_text("Reply with a photo or voice to clarify the task.")
@@ -193,11 +193,9 @@ async def handle_employee_response(update: Update, context: ContextTypes.DEFAULT
             employee = task_info['employee']
             task = task_info['task']
             if update.message.text and update.message.text.lower() == 'done':
-                await context.bot.send_message(chat_id=YOUR_ID, text=f"{employee} completed '{task}'")
-                await update.message.reply_text("Task marked complete. Reminders stopped.")
-                if task_info['job']:
-                    task_info['job'].schedule_removal()
-                del CONTEXT[boss_msg_id]
+                await context.bot.send_message(chat_id=YOUR_ID, text=f"{employee} completed '{task}' ✅")
+                await update.message.reply_text(f"Task marked complete ✅.")
+                del CONTEXT[boss_msg_id]  # Clear task, reminders continue
             elif update.message.text:
                 await context.bot.send_message(chat_id=YOUR_ID, text=f"{employee} on '{task}': {update.message.text}")
                 await update.message.reply_text("Response sent to Madam.")
