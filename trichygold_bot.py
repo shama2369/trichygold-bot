@@ -76,7 +76,7 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if employee in EMPLOYEES:
             chat_id = EMPLOYEES[employee]
             msg = await context.bot.send_message(chat_id=chat_id, text=f"Task: {task}")
-            confirmation = await update.message.reply_text(f"Sent to {employee}: {task}.")
+            confirmation = await update.message.reply_text(f"Sent to {employee}: {task}. Reminders every {minutes} min.")
             if context.job_queue is None:
                 logger.error("Job queue is None!")
                 await update.message.reply_text("Error: Reminder scheduling failed.")
@@ -159,24 +159,32 @@ async def done_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_boss_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.message.chat_id)
     if chat_id != YOUR_ID or not update.message.reply_to_message:
+        logger.info(f"handle_boss_media skipped: chat_id={chat_id}, reply={update.message.reply_to_message is not None}")
         return
     
     reply_msg_id = update.message.reply_to_message.message_id
+    logger.info(f"Reply to message ID: {reply_msg_id}, CONTEXT keys: {list(CONTEXT.keys())}")
     if reply_msg_id not in CONTEXT:
+        logger.info(f"Reply ID {reply_msg_id} not in CONTEXT")
         return
     
     task_info = CONTEXT[reply_msg_id]
     employee_chat_id = task_info['chat_id']
+    logger.info(f"Processing clarification for {task_info['employee']} (chat_id={employee_chat_id})")
     
     if update.message.photo:
         photo_file = update.message.photo[-1].file_id
         await context.bot.send_photo(chat_id=employee_chat_id, photo=photo_file, caption=f"Task clarification: {task_info['task']}")
+        logger.info(f"Sent photo to employee {employee_chat_id}")
         await context.bot.send_photo(chat_id=YOUR_ID, photo=photo_file, caption=f"Clarification sent to {task_info['employee']}: {task_info['task']}")
+        logger.info(f"Sent photo echo to boss {YOUR_ID}")
         await update.message.reply_text(f"Photo clarification sent to {task_info['employee']}.")
     elif update.message.voice:
         voice_file = update.message.voice.file_id
         await context.bot.send_voice(chat_id=employee_chat_id, voice=voice_file, caption=f"Task clarification: {task_info['task']}")
+        logger.info(f"Sent voice to employee {employee_chat_id}")
         await context.bot.send_voice(chat_id=YOUR_ID, voice=voice_file, caption=f"Clarification sent to {task_info['employee']}: {task_info['task']}")
+        logger.info(f"Sent voice echo to boss {YOUR_ID}")
         await update.message.reply_text(f"Voice clarification sent to {task_info['employee']}.")
     else:
         await update.message.reply_text("Reply with a photo or voice to clarify the task.")
