@@ -149,8 +149,9 @@ async def done_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             employee = task_info['employee']
             task = task_info['task']
             await context.bot.send_message(chat_id=YOUR_ID, text=f"{employee} completed '{task}' ✅")
-            await update.message.reply_text(f"Task marked complete ✅.")
-            del CONTEXT[boss_msg_id]  # Clear task, reminders continue
+            if task_info['job']:
+                task_info['job'].schedule_removal()  # Stop reminders on done
+            del CONTEXT[boss_msg_id]
             break
     else:
         await update.message.reply_text("No active task to mark done.")
@@ -194,8 +195,9 @@ async def handle_employee_response(update: Update, context: ContextTypes.DEFAULT
             task = task_info['task']
             if update.message.text and update.message.text.lower() == 'done':
                 await context.bot.send_message(chat_id=YOUR_ID, text=f"{employee} completed '{task}' ✅")
-                await update.message.reply_text(f"Task marked complete ✅.")
-                del CONTEXT[boss_msg_id]  # Clear task, reminders continue
+                if task_info['job']:
+                    task_info['job'].schedule_removal()  # Stop reminders on done
+                del CONTEXT[boss_msg_id]
             elif update.message.text:
                 await context.bot.send_message(chat_id=YOUR_ID, text=f"{employee} on '{task}': {update.message.text}")
                 await update.message.reply_text("Response sent to Madam.")
