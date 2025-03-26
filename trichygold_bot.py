@@ -12,7 +12,7 @@ BOT_TOKEN = '7358468280:AAGktrhJSHmhHWlW8KmME_ST5P6VQkoj_Vo'
 YOUR_ID = '1341853859'
 EMPLOYEES = {
     'shameem': '1341853859',
-    'Basheer': '7521055860',
+    'basheer': '7521055860',
     'employee3': 'CHAT_ID_3',
     'employee4': 'CHAT_ID_4',
     'employee5': 'CHAT_ID_5',
