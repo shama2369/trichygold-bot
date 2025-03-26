@@ -63,6 +63,7 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     try:
         args = context.args
+        print(f"Received employee: '{args[0]}', Available keys: {list(EMPLOYEES.keys())}")
         if len(args) < 2:
             raise ValueError
         employee = args[0].lower()
