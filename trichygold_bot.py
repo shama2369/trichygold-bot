@@ -224,7 +224,7 @@ application.add_handler(CommandHandler("start", start))
 application.add_handler(CommandHandler("assign", assign_task))
 application.add_handler(CommandHandler("concern", concern))
 application.add_handler(CommandHandler("done", done_command))
-application.add_handler(MessageHandler(filters.PHOTO | filters.VOICE & filters.User(user_id=int(YOUR_ID)) & filters.REPLY, handle_boss_media))
+application.add_handler(MessageHandler((filters.PHOTO | filters.VOICE) & filters.User(user_id=int(YOUR_ID)) & filters.REPLY, handle_boss_media))
 application.add_handler(MessageHandler(filters.TEXT | filters.Document.ALL | filters.VOICE & ~filters.User(user_id=int(YOUR_ID)) & filters.REPLY, handle_employee_response))
 application.add_handler(MessageHandler((filters.VOICE | filters.Document.ALL | filters.PHOTO) & ~filters.User(user_id=int(YOUR_ID)) & filters.REPLY, handle_concern_response))
 
