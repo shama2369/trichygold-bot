@@ -96,9 +96,11 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "  Example: /assign rehan check inventory 30\n\n"
             "/list - View all active tasks\n"
             "/done - Mark a task as completed\n"
+            "/clarify - Send clarification for a task\n"
             "/concerns - View all concerns\n\n"
             "To clarify tasks:\n"
-            "• Reply to task confirmation with voice/photo"
+            "• Use /clarify to select a task\n"
+            "• Then send voice/photo"
         )
     else:
         help_text = (
@@ -288,47 +290,86 @@ async def handle_concern_response(update: Update, context: ContextTypes.DEFAULT_
     
     del CONCERN_CONTEXT[chat_id]
 
+async def clarify_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = str(update.message.chat_id)
+    if chat_id != YOUR_ID:
+        await update.message.reply_text("Only Madam can use /clarify!")
+        return
+    
+    args = context.args
+    if not args:
+        # Show all active tasks with numbers
+        if not CONTEXT:
+            await update.message.reply_text("No active tasks.")
+            return
+        
+        task_list = "Active Tasks:\n\n"
+        for idx, (msg_id, task_info) in enumerate(CONTEXT.items(), 1):
+            task_list += f"{idx}. 👤 {task_info['employee']}\n📝 {task_info['task']}\n\n"
+        
+        await update.message.reply_text(
+            task_list + "\nTo send clarification:\n"
+            "Usage: /clarify <task_number>\n"
+            "Example: /clarify 1"
+        )
+        return
+    
+    try:
+        task_number = int(args[0])
+        if task_number < 1 or task_number > len(CONTEXT):
+            await update.message.reply_text(
+                f"Invalid task number. Please use a number between 1 and {len(CONTEXT)}."
+            )
+            return
+        
+        # Get the task at the specified number
+        task_items = list(CONTEXT.items())
+        boss_msg_id, task_info = task_items[task_number - 1]
+        
+        # Store the task info for the next media message
+        context.user_data['clarify_task'] = task_info
+        
+        await update.message.reply_text(
+            f"Selected task for {task_info['employee']}: {task_info['task']}\n\n"
+            "Now send your voice message or photo for clarification."
+        )
+            
+    except ValueError:
+        await update.message.reply_text(
+            "Please use a number to specify which task to clarify.\n"
+            "Example: /clarify 1"
+        )
+
 async def handle_boss_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.message.chat_id)
-    if chat_id != YOUR_ID or not update.message.reply_to_message:
+    if chat_id != YOUR_ID:
         return
     
-    reply_msg_id = update.message.reply_to_message.message_id
-    if reply_msg_id not in CONTEXT:
-        await update.message.reply_text("❌ No active task found for this message.")
+    # Check if we're in clarification mode
+    if 'clarify_task' in context.user_data:
+        task_info = context.user_data['clarify_task']
+        employee = task_info['employee']
+        task = task_info['task']
+        
+        # Forward the media to the employee
+        if update.message.voice:
+            await context.bot.send_voice(
+                chat_id=EMPLOYEES[employee],
+                voice=update.message.voice.file_id,
+                caption=f"Voice clarification for task: {task}"
+            )
+        elif update.message.photo:
+            await context.bot.send_photo(
+                chat_id=EMPLOYEES[employee],
+                photo=update.message.photo[-1].file_id,
+                caption=f"Image clarification for task: {task}"
+            )
+        
+        await update.message.reply_text(f"Sent clarification to {employee}")
+        del context.user_data['clarify_task']
         return
     
-    task_info = CONTEXT[reply_msg_id]
-    employee_chat_id = task_info['chat_id']
-    
-    if update.message.photo:
-        photo_file = update.message.photo[-1].file_id
-        await context.bot.send_photo(
-            chat_id=employee_chat_id,
-            photo=photo_file,
-            caption=f"📝 Task clarification for: {task_info['task']}"
-        )
-        await context.bot.send_photo(
-            chat_id=YOUR_ID,
-            photo=photo_file,
-            caption=f"✅ Photo clarification sent to {task_info['employee']}"
-        )
-        await update.message.reply_text(f"✅ Photo clarification sent to {task_info['employee']}.")
-    elif update.message.voice:
-        voice_file = update.message.voice.file_id
-        await context.bot.send_voice(
-            chat_id=employee_chat_id,
-            voice=voice_file,
-            caption=f"📝 Task clarification for: {task_info['task']}"
-        )
-        await context.bot.send_voice(
-            chat_id=YOUR_ID,
-            voice=voice_file,
-            caption=f"✅ Voice clarification sent to {task_info['employee']}"
-        )
-        await update.message.reply_text(f"✅ Voice clarification sent to {task_info['employee']}.")
-    else:
-        await update.message.reply_text("❌ Please send a photo or voice message for clarification.")
+    await update.message.reply_text("Please use /clarify to select a task first.")
 
 async def handle_employee_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.message.chat_id)
@@ -474,8 +515,9 @@ application.add_handler(CommandHandler("assign", assign_task))
 application.add_handler(CommandHandler("list", list_tasks))
 application.add_handler(CommandHandler("concern", concern))
 application.add_handler(CommandHandler("done", done_command))
+application.add_handler(CommandHandler("clarify", clarify_command))
 application.add_handler(CallbackQueryHandler(button_callback))
-application.add_handler(MessageHandler((filters.PHOTO | filters.VOICE) & filters.User(user_id=int(YOUR_ID)) & filters.REPLY, handle_boss_media))
+application.add_handler(MessageHandler((filters.PHOTO | filters.VOICE) & filters.User(user_id=int(YOUR_ID)), handle_boss_media))
 application.add_handler(MessageHandler(filters.TEXT | filters.Document.ALL | filters.VOICE & ~filters.User(user_id=int(YOUR_ID)) & filters.REPLY, handle_employee_response))
 application.add_handler(MessageHandler((filters.VOICE | filters.Document.ALL | filters.PHOTO) & ~filters.User(user_id=int(YOUR_ID)) & filters.REPLY, handle_concern_response))
 
