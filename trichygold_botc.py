@@ -48,8 +48,16 @@ def get_employee_name(chat_id):
             return name
     return None
 
-def format_task_message(task, minutes):
-    return f"📋 New Task Assigned!\n\nTask: {task}\nReminder: Every {minutes} minutes\n\nPlease reply to this message with:\n• Text updates\n• Voice messages\n• Files/documents\n• 'done' when completed"
+def format_task_message(task: str, minutes: int) -> str:
+    return (
+        f"📝 New Task Assigned!\n\n"
+        f"Task: {task}\n"
+        f"Reminders every {minutes} minutes\n\n"
+        f"To respond:\n"
+        f"• Use /concern to raise any concerns\n"
+        f"• Use /mydone to mark task as completed\n\n"
+        f"Please acknowledge this task."
+    )
 
 def create_task_keyboard():
     keyboard = [
@@ -105,14 +113,13 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         help_text = (
             "📚 Employee Commands:\n\n"
+            "/mydone - Mark your task as completed\n"
+            "  Example: /mydone 1\n\n"
             "/concern - Raise a concern about a task\n"
             "  Example: /concern 1 Need more materials\n\n"
             "To respond to tasks:\n"
-            "• Reply to task messages with:\n"
-            "  - Text updates\n"
-            "  - Voice messages\n"
-            "  - Files/documents\n"
-            "  - 'done' when completed\n\n"
+            "• Use /mydone to mark tasks as completed\n"
+            "• Use /concern to raise concerns\n\n"
             "To raise concerns:\n"
             "• Use /concern to see your tasks\n"
             "• Then use /concern <task_number> <your concern>\n"
@@ -563,6 +570,103 @@ async def done_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Example: /done 1"
         )
 
+async def mydone_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = str(update.message.chat_id)
+    if chat_id == YOUR_ID:
+        await update.message.reply_text("Please use /done to mark tasks as completed.")
+        return
+    
+    # Check if employee has any active tasks
+    employee = None
+    for task_info in CONTEXT.values():
+        if str(task_info['chat_id']) == chat_id:
+            employee = task_info['employee']
+            break
+    
+    if not employee:
+        await update.message.reply_text("You don't have any active tasks to mark as done.")
+        return
+    
+    # Show active tasks for this employee
+    task_list = "Your Active Tasks:\n\n"
+    employee_tasks = []
+    for idx, (msg_id, task_info) in enumerate(CONTEXT.items(), 1):
+        if str(task_info['chat_id']) == chat_id:
+            task_list += f"{idx}. 📝 {task_info['task']}\n\n"
+            employee_tasks.append((msg_id, task_info))
+    
+    if not employee_tasks:
+        await update.message.reply_text("You don't have any active tasks to mark as done.")
+        return
+    
+    task_list += "\nTo mark a task as done:\nUsage: /mydone <task_number>\nExample: /mydone 1"
+    
+    # Store tasks for this employee
+    context.user_data['employee_tasks'] = employee_tasks
+    
+    await update.message.reply_text(task_list)
+
+async def handle_mydone_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = str(update.message.chat_id)
+    if chat_id == YOUR_ID:
+        return
+    
+    # Handle text command
+    if update.message.text and update.message.text.startswith('/mydone'):
+        args = update.message.text.split(maxsplit=1)
+        if len(args) < 2:
+            await update.message.reply_text("Please use: /mydone <task_number>")
+            return
+        
+        try:
+            task_number = int(args[1])
+            
+            if 'employee_tasks' not in context.user_data:
+                await update.message.reply_text("Please use /mydone first to see your tasks.")
+                return
+            
+            employee_tasks = context.user_data['employee_tasks']
+            if task_number < 1 or task_number > len(employee_tasks):
+                await update.message.reply_text(
+                    f"Invalid task number. Please use a number between 1 and {len(employee_tasks)}."
+                )
+                return
+            
+            # Get the task at the specified number
+            boss_msg_id, task_info = employee_tasks[task_number - 1]
+            
+            # Mark the task as done
+            employee = task_info['employee']
+            task = task_info['task']
+            await context.bot.send_message(
+                chat_id=YOUR_ID,
+                text=f"✅ {employee} completed task: {task}"
+            )
+            if task_info['job']:
+                task_info['job'].schedule_removal()
+            task_info['status'] = 'completed'
+            task_info['completed_at'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            del CONTEXT[boss_msg_id]
+            
+            await update.message.reply_text("✅ Task marked as completed!")
+            
+            # Show remaining tasks
+            remaining_tasks = [t for t in employee_tasks if t[0] != boss_msg_id]
+            if remaining_tasks:
+                task_list = "Your Remaining Tasks:\n\n"
+                for idx, (msg_id, task_info) in enumerate(remaining_tasks, 1):
+                    task_list += f"{idx}. 📝 {task_info['task']}\n\n"
+                await update.message.reply_text(task_list)
+            
+        except ValueError:
+            await update.message.reply_text(
+                "Please use a number to specify which task to mark as done.\n"
+                "Example: /mydone 1"
+            )
+        return
+    
+    await update.message.reply_text("Please use /mydone to select a task first.")
+
 # Webhook handlers
 @app.route('/')
 async def health_check():
@@ -588,6 +692,7 @@ application.add_handler(CommandHandler("list", list_tasks))
 application.add_handler(CommandHandler("concern", concern))
 application.add_handler(CommandHandler("done", done_command))
 application.add_handler(CommandHandler("clarify", clarify_command))
+application.add_handler(CommandHandler("mydone", mydone_command))
 application.add_handler(CallbackQueryHandler(button_callback))
 application.add_handler(MessageHandler((filters.PHOTO | filters.VOICE) & filters.User(user_id=int(YOUR_ID)), handle_boss_media))
 application.add_handler(MessageHandler(filters.TEXT | filters.Document.ALL | filters.VOICE & ~filters.User(user_id=int(YOUR_ID)) & filters.REPLY, handle_employee_response))
