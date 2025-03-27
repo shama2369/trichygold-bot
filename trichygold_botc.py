@@ -4,7 +4,9 @@ from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandl
 from quart import Quart, request
 import uvicorn
 import logging
-from datetime import datetime
+from datetime import datetime, time, timedelta
+import aiohttp
+import os
 
 # Set up logging
 logging.basicConfig(
@@ -41,6 +43,61 @@ CONTEXT = {}
 CONCERN_CONTEXT = {}
 TASK_STATUS = {}
 
+# Update the message system
+FIXED_MESSAGES = {
+    'morning': "🌅 Good Morning TrichyGold Team!\n\n"
+              "📊 Today's Focus:\n"
+              "• Check daily sales target\n"
+              "• Review inventory status\n"
+              "• Plan customer follow-ups\n\n"
+              "💪 Let's make today successful!",
+    
+    'afternoon': "🌇 Good Afternoon TrichyGold Team!\n\n"
+                "📈 Mid-day Check:\n"
+                "• How are sales going?\n"
+                "• Any customer feedback?\n"
+                "• Need any support?\n\n"
+                "Keep up the great work! 💪",
+    
+    'evening': "🌙 Good Evening TrichyGold Team!\n\n"
+              "📊 End of Day Summary:\n"
+              "• Review today's achievements\n"
+              "• Plan for tomorrow\n"
+              "• Any pending tasks?\n\n"
+              "Great job today! 👏",
+    
+    'night': "🌙 Good Night TrichyGold Team!\n\n"
+            "📝 Final Check:\n"
+            "• All tasks completed?\n"
+            "• Shop properly closed?\n"
+            "• Ready for tomorrow?\n\n"
+            "Rest well! 🌟"
+}
+
+# Custom messages that can be added dynamically
+CUSTOM_MESSAGES = {}
+
+# Update the daily messages
+DAILY_MESSAGES = [
+    "🌅 Good Morning TrichyGold Team!\n\n"
+    "📊 Today's Focus:\n"
+    "• Check daily sales target\n"
+    "• Review inventory status\n"
+    "• Plan customer follow-ups\n\n"
+    "💪 Let's make today successful!",
+    
+    "🌇 Good Afternoon TrichyGold Team!\n\n"
+    "📈 Mid-day Check:\n"
+    "• How are sales going?\n"
+    "• Any customer feedback?\n"
+    "• Need any support?\n\n"
+    "Keep up the great work! 💪"
+]
+
+# Add after the global variables
+PING_URL = os.getenv('PING_URL', 'https://your-ping-url.com')  # Replace with your actual ping URL
+LAST_PING = datetime.now()
+
 # Helper Functions
 def get_employee_name(chat_id):
     for name, eid in EMPLOYEES.items():
@@ -55,15 +112,14 @@ def format_task_message(task: str, minutes: int) -> str:
         f"Reminders every {minutes} minutes\n\n"
         f"To respond:\n"
         f"• Use /concern to raise any concerns\n"
-        f"• Use /mydone to mark task as completed\n\n"
-        f"Please acknowledge this task."
+        f"• Use /mydone to mark task as completed"
     )
 
 def create_task_keyboard():
     keyboard = [
         [
-            InlineKeyboardButton("Mark as Done ✅", callback_data="done"),
-            InlineKeyboardButton("Ask for Clarification ❓", callback_data="clarify")
+            InlineKeyboardButton("📝 Mark as Done", callback_data="mydone"),
+            InlineKeyboardButton("❓ Raise Concern", callback_data="concern")
         ]
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -76,21 +132,27 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if chat_id == YOUR_ID:
         welcome_message = (
             "👋 Welcome to TrichyGold Task Manager!\n\n"
-            "Available Commands:\n"
-            "/assign - Assign a task to an employee\n"
-            "/list - List all active tasks\n"
+            "📚 Available Commands:\n"
+            "/assign <employee1,employee2,...> <task> [minutes]\n"
+            "  Example: /assign rehan,shameem check inventory 30\n\n"
+            "/list - View all active tasks\n"
             "/done - Mark a task as completed\n"
-            "/help - Show this help message"
+            "/clarify - Send clarification for a task\n"
+            "/concerns - View all concerns\n"
+            "/help - Show detailed help message"
         )
     else:
         welcome_message = (
             f"👋 Welcome {employee_name}!\n\n"
-            "Available Commands:\n"
-            "/concern - Raise a concern to Madam\n"
-            "/help - Show this help message\n\n"
+            "📚 Available Commands:\n"
+            "/mydone - Mark your task as completed\n"
+            "  Example: /mydone 1\n\n"
+            "/concern - Raise a concern about a task\n"
+            "  Example: /concern 1 Need more materials\n\n"
             "To respond to tasks:\n"
-            "• Reply to task messages with text/voice/files\n"
-            "• Use 'done' to mark tasks as completed"
+            "• Use /mydone to mark tasks as completed\n"
+            "• Use /concern to raise concerns\n"
+            "/help - Show detailed help message"
         )
     
     await update.message.reply_text(welcome_message)
@@ -106,6 +168,11 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "/done - Mark a task as completed\n"
             "/clarify - Send clarification for a task\n"
             "/concerns - View all concerns\n\n"
+            "📝 Message Management:\n"
+            "/viewmessages - View all messages\n"
+            "/addmessage - Add new custom message\n"
+            "/removemessage - Remove custom message\n"
+            "/sendmessage - Send a message to all\n\n"
             "To clarify tasks:\n"
             "• Use /clarify to select a task\n"
             "• Then send voice/photo"
@@ -503,10 +570,18 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
-    if query.data == "done":
-        await query.message.reply_text("Please type 'done' to mark the task as completed.")
+    if query.data == "mydone":
+        # Trigger /mydone command
+        await query.message.reply_text("/mydone")
+    elif query.data == "concern":
+        # Trigger /concern command
+        await query.message.reply_text("/concern")
+    elif query.data == "done":
+        # Trigger /done command
+        await query.message.reply_text("/done")
     elif query.data == "clarify":
-        await query.message.reply_text("Please use /concern to ask for clarification.")
+        # Trigger /clarify command
+        await query.message.reply_text("/clarify")
 
 async def done_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.message.chat_id)
@@ -667,10 +742,136 @@ async def handle_mydone_response(update: Update, context: ContextTypes.DEFAULT_T
     
     await update.message.reply_text("Please use /mydone to select a task first.")
 
+# Add message management commands
+async def add_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if str(update.message.chat_id) != YOUR_ID:
+        await update.message.reply_text("❌ Only Madam can add messages!")
+        return
+    
+    args = context.args
+    if len(args) < 2:
+        await update.message.reply_text(
+            "❌ Invalid command format.\n\n"
+            "Usage: /addmessage <name> <your message>\n"
+            "Example: /addmessage special Good morning team!"
+        )
+        return
+    
+    name = args[0].lower()
+    message = ' '.join(args[1:])
+    
+    if name in FIXED_MESSAGES:
+        await update.message.reply_text("❌ This name is reserved for fixed messages. Please use a different name.")
+        return
+    
+    CUSTOM_MESSAGES[name] = message
+    await update.message.reply_text(
+        f"✅ Custom message '{name}' added successfully!\n\n"
+        f"Message:\n{message}"
+    )
+
+async def remove_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if str(update.message.chat_id) != YOUR_ID:
+        await update.message.reply_text("❌ Only Madam can remove messages!")
+        return
+    
+    args = context.args
+    if not args:
+        await update.message.reply_text(
+            "❌ Please specify which message to remove.\n\n"
+            "Usage: /removemessage <name>\n"
+            "Example: /removemessage special"
+        )
+        return
+    
+    name = args[0].lower()
+    if name in FIXED_MESSAGES:
+        await update.message.reply_text("❌ Cannot remove fixed messages.")
+        return
+    
+    if name in CUSTOM_MESSAGES:
+        del CUSTOM_MESSAGES[name]
+        await update.message.reply_text(f"✅ Custom message '{name}' removed successfully!")
+    else:
+        await update.message.reply_text(f"❌ No custom message found with name '{name}'")
+
+async def view_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if str(update.message.chat_id) != YOUR_ID:
+        await update.message.reply_text("❌ Only Madam can view messages!")
+        return
+    
+    message_list = "📝 All Messages:\n\n"
+    
+    # Show fixed messages
+    message_list += "🔄 Fixed Messages:\n"
+    for name, message in FIXED_MESSAGES.items():
+        message_list += f"\n{name.title()}:\n{message}\n"
+    
+    # Show custom messages
+    if CUSTOM_MESSAGES:
+        message_list += "\n📝 Custom Messages:\n"
+        for name, message in CUSTOM_MESSAGES.items():
+            message_list += f"\n{name.title()}:\n{message}\n"
+    else:
+        message_list += "\n📝 No custom messages added yet.\n"
+    
+    message_list += "\nCommands:\n"
+    message_list += "• /addmessage <name> <message> - Add new message\n"
+    message_list += "• /removemessage <name> - Remove custom message\n"
+    message_list += "• /sendmessage - Send a message to all employees"
+    
+    await update.message.reply_text(message_list)
+
+async def send_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if str(update.message.chat_id) != YOUR_ID:
+        await update.message.reply_text("❌ Only Madam can send messages!")
+        return
+    
+    args = context.args
+    if not args:
+        await update.message.reply_text(
+            "❌ Please specify which message to send.\n\n"
+            "Usage: /sendmessage <name>\n"
+            "Example: /sendmessage morning"
+        )
+        return
+    
+    name = args[0].lower()
+    message = FIXED_MESSAGES.get(name) or CUSTOM_MESSAGES.get(name)
+    
+    if not message:
+        await update.message.reply_text(f"❌ No message found with name '{name}'")
+        return
+    
+    # Send message to all employees
+    success_count = 0
+    for employee_name, chat_id in EMPLOYEES.items():
+        try:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=message
+            )
+            success_count += 1
+            logger.info(f"Sent message '{name}' to {employee_name}")
+        except Exception as e:
+            logger.error(f"Failed to send message '{name}' to {employee_name}: {e}")
+    
+    await update.message.reply_text(
+        f"✅ Message '{name}' sent to {success_count} employees successfully!"
+    )
+
 # Webhook handlers
 @app.route('/')
 async def health_check():
-    return "Bot is running", 200
+    global LAST_PING
+    time_since_last_ping = datetime.now() - LAST_PING
+    status = "healthy" if time_since_last_ping < timedelta(minutes=15) else "warning"
+    return {
+        "status": status,
+        "last_ping": LAST_PING.isoformat(),
+        "time_since_last_ping": str(time_since_last_ping),
+        "bot_running": True
+    }, 200
 
 @app.route(f'/webhook/{BOT_TOKEN}', methods=['POST'])
 async def webhook():
@@ -693,28 +894,110 @@ application.add_handler(CommandHandler("concern", concern))
 application.add_handler(CommandHandler("done", done_command))
 application.add_handler(CommandHandler("clarify", clarify_command))
 application.add_handler(CommandHandler("mydone", mydone_command))
+application.add_handler(CommandHandler("addmessage", add_message))
+application.add_handler(CommandHandler("removemessage", remove_message))
+application.add_handler(CommandHandler("viewmessages", view_all_messages))
+application.add_handler(CommandHandler("sendmessage", send_message))
 application.add_handler(CallbackQueryHandler(button_callback))
 application.add_handler(MessageHandler((filters.PHOTO | filters.VOICE) & filters.User(user_id=int(YOUR_ID)), handle_boss_media))
 application.add_handler(MessageHandler(filters.TEXT | filters.Document.ALL | filters.VOICE & ~filters.User(user_id=int(YOUR_ID)) & filters.REPLY, handle_employee_response))
 application.add_handler(MessageHandler((filters.VOICE | filters.Document.ALL | filters.PHOTO) & ~filters.User(user_id=int(YOUR_ID)), handle_concern_response))
+application.add_handler(MessageHandler(filters.TEXT & ~filters.User(user_id=int(YOUR_ID)), handle_mydone_response))
 
 # Application setup
-async def run_application():
-    await application.initialize()
-    await application.start()
-    await asyncio.Event().wait()
+async def setup_daily_reminders(application: Application):
+    # Schedule reminders at 10 AM, 2 PM, 6 PM, and 9 PM
+    reminder_times = [
+        (10, 0),  # 10:00 AM
+        (14, 0),  # 2:00 PM
+        (18, 0),  # 6:00 PM
+        (21, 0)   # 9:00 PM
+    ]
+    
+    for hour, minute in reminder_times:
+        job = application.job_queue.run_daily(
+            send_daily_reminder,
+            time=time(hour=hour, minute=minute),
+            name=f"daily_reminder_{hour}"
+        )
+        logger.info(f"Scheduled daily reminder for {hour:02d}:{minute:02d}")
 
-async def setup_webhook():
-    url = f"https://trichygold-bot.onrender.com/webhook/{BOT_TOKEN}"
-    response = await application.bot.set_webhook(url=url)
-    logger.info(f"Webhook set: {response}")
+async def send_daily_reminder(context: ContextTypes.DEFAULT_TYPE):
+    current_time = datetime.now().time()
+    
+    # Determine which message to send based on time
+    if current_time.hour == 10:  # 10 AM
+        message = FIXED_MESSAGES['morning']
+    elif current_time.hour == 14:  # 2 PM
+        message = FIXED_MESSAGES['afternoon']
+    elif current_time.hour == 18:  # 6 PM
+        message = FIXED_MESSAGES['evening']
+    elif current_time.hour == 21:  # 9 PM
+        message = FIXED_MESSAGES['night']
+    else:
+        return
+    
+    # Send message to all employees
+    for employee_name, chat_id in EMPLOYEES.items():
+        try:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=message
+            )
+            logger.info(f"Sent daily reminder to {employee_name}")
+        except Exception as e:
+            logger.error(f"Failed to send daily reminder to {employee_name}: {e}")
+
+async def ping():
+    """Keep the bot alive by sending periodic pings"""
+    while True:
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(PING_URL) as response:
+                    if response.status == 200:
+                        global LAST_PING
+                        LAST_PING = datetime.now()
+                        logger.info(f"Ping successful at {LAST_PING}")
+                    else:
+                        logger.warning(f"Ping failed with status {response.status}")
+        except Exception as e:
+            logger.error(f"Ping error: {e}")
+        
+        # Ping every 14 minutes to stay within the 15-minute timeout
+        await asyncio.sleep(14 * 60)
 
 async def main():
-    asyncio.create_task(run_application())
-    await setup_webhook()
-    config = uvicorn.Config(app=app, host="0.0.0.0", port=8080, loop="asyncio")
-    server = uvicorn.Server(config)
-    await server.serve()
+    try:
+        # Start self-ping in background
+        ping_task = asyncio.create_task(ping())
+        
+        # Set up daily reminders
+        await setup_daily_reminders(application)
+        
+        # Start the bot
+        await application.initialize()
+        await application.start()
+        
+        # Run the bot
+        await application.run_polling(allowed_updates=Update.ALL_TYPES)
+    except Exception as e:
+        logger.error(f"Error in main: {e}")
+        raise
+    finally:
+        # Clean up
+        if 'ping_task' in locals():
+            ping_task.cancel()
+            try:
+                await ping_task
+            except asyncio.CancelledError:
+                pass
+        await application.stop()
+        await application.shutdown()
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("Bot stopped by user")
+    except Exception as e:
+        logger.error(f"Bot stopped due to error: {e}")
