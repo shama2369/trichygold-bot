@@ -388,6 +388,68 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == "clarify":
         await query.message.reply_text("Please use /concern to ask for clarification.")
 
+async def done_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = str(update.message.chat_id)
+    if chat_id != YOUR_ID:
+        await update.message.reply_text("Only Madam can use /done!")
+        return
+    
+    args = context.args
+    if not args:
+        # Show all active tasks with numbers
+        if not CONTEXT:
+            await update.message.reply_text("No active tasks.")
+            return
+        
+        task_list = "Active Tasks:\n\n"
+        for idx, (msg_id, task_info) in enumerate(CONTEXT.items(), 1):
+            task_list += f"{idx}. 👤 {task_info['employee']}\n📝 {task_info['task']}\n\n"
+        
+        await update.message.reply_text(
+            task_list + "\nTo mark a task as done:\n"
+            "Usage: /done <task_number>\n"
+            "Example: /done 1"
+        )
+        return
+    
+    try:
+        task_number = int(args[0])
+        if task_number < 1 or task_number > len(CONTEXT):
+            await update.message.reply_text(
+                f"Invalid task number. Please use a number between 1 and {len(CONTEXT)}."
+            )
+            return
+        
+        # Get the task at the specified number
+        task_items = list(CONTEXT.items())
+        boss_msg_id, task_info = task_items[task_number - 1]
+        
+        # Mark the task as done
+        employee = task_info['employee']
+        task = task_info['task']
+        await context.bot.send_message(
+            chat_id=YOUR_ID,
+            text=f"✅ Task marked as completed for {employee}: {task}"
+        )
+        if task_info['job']:
+            task_info['job'].schedule_removal()  # Stop reminders on done
+        del CONTEXT[boss_msg_id]
+        
+        # Show remaining tasks
+        if CONTEXT:
+            task_list = "Remaining Active Tasks:\n\n"
+            for idx, (msg_id, task_info) in enumerate(CONTEXT.items(), 1):
+                task_list += f"{idx}. 👤 {task_info['employee']}\n📝 {task_info['task']}\n\n"
+            await update.message.reply_text(task_list)
+        else:
+            await update.message.reply_text("All tasks have been completed.")
+            
+    except ValueError:
+        await update.message.reply_text(
+            "Please use a number to specify which task to mark as done.\n"
+            "Example: /done 1"
+        )
+
 # Webhook handlers
 @app.route('/')
 async def health_check():
@@ -411,6 +473,7 @@ application.add_handler(CommandHandler("help", help_command))
 application.add_handler(CommandHandler("assign", assign_task))
 application.add_handler(CommandHandler("list", list_tasks))
 application.add_handler(CommandHandler("concern", concern))
+application.add_handler(CommandHandler("done", done_command))
 application.add_handler(CallbackQueryHandler(button_callback))
 application.add_handler(MessageHandler((filters.PHOTO | filters.VOICE) & filters.User(user_id=int(YOUR_ID)) & filters.REPLY, handle_boss_media))
 application.add_handler(MessageHandler(filters.TEXT | filters.Document.ALL | filters.VOICE & ~filters.User(user_id=int(YOUR_ID)) & filters.REPLY, handle_employee_response))
