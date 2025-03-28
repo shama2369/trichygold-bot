@@ -6,3 +6,4 @@ uvicorn
 python-telegram-bot==22.0
 flask==3.0.2
 aiohttp==3.9.3
+pytz==2024.1
