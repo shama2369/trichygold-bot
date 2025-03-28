@@ -7,6 +7,8 @@ import logging
 from datetime import datetime, time, timedelta
 import aiohttp
 import os
+import pytz
+from fastapi import FastAPI
 
 # Set up logging
 logging.basicConfig(
@@ -37,6 +39,9 @@ EMPLOYEES = {
 # Initialize Flask and Bot
 app = Quart(__name__)
 application = Application.builder().token(BOT_TOKEN).build()
+
+# Dictionary to store active employee chat IDs
+ACTIVE_EMPLOYEES = {}
 
 # Global state management
 CONTEXT = {}
@@ -126,36 +131,27 @@ def create_task_keyboard():
 
 # Command Handlers
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = str(update.message.chat_id)
-    employee_name = get_employee_name(chat_id)
-    
-    if chat_id == YOUR_ID:
-        welcome_message = (
-            "👋 Welcome to TrichyGold Task Manager!\n\n"
-            "📚 Available Commands:\n"
-            "/assign <employee1,employee2,...> <task> [minutes]\n"
-            "  Example: /assign rehan,shameem check inventory 30\n\n"
-            "/list - View all active tasks\n"
-            "/done - Mark a task as completed\n"
-            "/clarify - Send clarification for a task\n"
-            "/concerns - View all concerns\n"
-            "/help - Show detailed help message"
-        )
-    else:
-        welcome_message = (
-            f"👋 Welcome {employee_name}!\n\n"
-            "📚 Available Commands:\n"
-            "/mydone - Mark your task as completed\n"
-            "  Example: /mydone 1\n\n"
-            "/concern - Raise a concern about a task\n"
-            "  Example: /concern 1 Need more materials\n\n"
-            "To respond to tasks:\n"
-            "• Use /mydone to mark tasks as completed\n"
-            "• Use /concern to raise concerns\n"
-            "/help - Show detailed help message"
-        )
-    
-    await update.message.reply_text(welcome_message)
+    """Handle /start command"""
+    try:
+        chat_id = update.effective_chat.id
+        user_name = update.effective_user.username or update.effective_user.first_name
+        
+        # Check if user is an employee
+        employee_name = None
+        for name, emp_chat_id in EMPLOYEES.items():
+            if emp_chat_id == str(chat_id):
+                employee_name = name
+                break
+        
+        if employee_name:
+            ACTIVE_EMPLOYEES[employee_name] = chat_id
+            await update.message.reply_text(f"Welcome back {employee_name}! You are now registered for daily reminders.")
+            logger.info(f"Employee {employee_name} registered with chat ID {chat_id}")
+        else:
+            await update.message.reply_text("Welcome! Please contact admin for registration.")
+            
+    except Exception as e:
+        logger.error(f"Error in start command: {e}")
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.message.chat_id)
@@ -713,15 +709,24 @@ async def handle_mydone_response(update: Update, context: ContextTypes.DEFAULT_T
             # Mark the task as done
             employee = task_info['employee']
             task = task_info['task']
+            
+            # Stop the reminder job if it exists
+            if task_info.get('job'):
+                task_info['job'].schedule_removal()
+            
+            # Update task status and completion time
+            task_info['status'] = 'completed'
+            task_info['completed_at'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            
+            # Remove task from CONTEXT
+            if boss_msg_id in CONTEXT:
+                del CONTEXT[boss_msg_id]
+            
+            # Notify Madam
             await context.bot.send_message(
                 chat_id=YOUR_ID,
                 text=f"✅ {employee} completed task: {task}"
             )
-            if task_info['job']:
-                task_info['job'].schedule_removal()
-            task_info['status'] = 'completed'
-            task_info['completed_at'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            del CONTEXT[boss_msg_id]
             
             await update.message.reply_text("✅ Task marked as completed!")
             
@@ -732,6 +737,8 @@ async def handle_mydone_response(update: Update, context: ContextTypes.DEFAULT_T
                 for idx, (msg_id, task_info) in enumerate(remaining_tasks, 1):
                     task_list += f"{idx}. 📝 {task_info['task']}\n\n"
                 await update.message.reply_text(task_list)
+            else:
+                await update.message.reply_text("🎉 All your tasks are completed!")
             
         except ValueError:
             await update.message.reply_text(
@@ -873,6 +880,31 @@ async def health_check():
         "bot_running": True
     }, 200
 
+@app.route('/ping')
+async def ping_handler():
+    return 'OK', 200
+
+@app.route('/register', methods=['POST'])
+async def register_employee():
+    """Register a new employee chat ID"""
+    try:
+        data = await request.get_json()
+        employee_name = data.get('name')
+        chat_id = data.get('chat_id')
+        
+        if not employee_name or not chat_id:
+            return {'error': 'Missing name or chat_id'}, 400
+            
+        if employee_name not in EMPLOYEES:
+            return {'error': 'Employee not authorized'}, 403
+            
+        ACTIVE_EMPLOYEES[employee_name] = chat_id
+        logger.info(f"Registered chat ID for {employee_name}")
+        return {'status': 'success'}, 200
+    except Exception as e:
+        logger.error(f"Error registering employee: {e}")
+        return {'error': str(e)}, 500
+
 @app.route(f'/webhook/{BOT_TOKEN}', methods=['POST'])
 async def webhook():
     logger.info("Webhook hit")
@@ -905,48 +937,59 @@ application.add_handler(MessageHandler((filters.VOICE | filters.Document.ALL | f
 application.add_handler(MessageHandler(filters.TEXT & ~filters.User(user_id=int(YOUR_ID)), handle_mydone_response))
 
 # Application setup
-async def setup_daily_reminders(application: Application):
-    # Schedule reminders at 10 AM, 2 PM, 6 PM, and 9 PM
-    reminder_times = [
-        (10, 0),  # 10:00 AM
-        (14, 0),  # 2:00 PM
-        (18, 0),  # 6:00 PM
-        (21, 0)   # 9:00 PM
-    ]
-    
-    for hour, minute in reminder_times:
-        job = application.job_queue.run_daily(
-            send_daily_reminder,
-            time=time(hour=hour, minute=minute),
-            name=f"daily_reminder_{hour}"
-        )
-        logger.info(f"Scheduled daily reminder for {hour:02d}:{minute:02d}")
-
-async def send_daily_reminder(context: ContextTypes.DEFAULT_TYPE):
-    current_time = datetime.now().time()
-    
-    # Determine which message to send based on time
-    if current_time.hour == 10:  # 10 AM
-        message = FIXED_MESSAGES['morning']
-    elif current_time.hour == 14:  # 2 PM
-        message = FIXED_MESSAGES['afternoon']
-    elif current_time.hour == 18:  # 6 PM
-        message = FIXED_MESSAGES['evening']
-    elif current_time.hour == 21:  # 9 PM
-        message = FIXED_MESSAGES['night']
-    else:
-        return
-    
-    # Send message to all employees
+async def setup_daily_reminders(app: Application):
+    """Setup daily reminders for all employees"""
     for employee_name, chat_id in EMPLOYEES.items():
-        try:
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=message
+        # Schedule reminders for each time slot
+        for hour in [9, 13, 18, 21]:
+            app.job_queue.run_daily(
+                callback=lambda ctx, name=employee_name, cid=chat_id: send_daily_reminder(ctx, name, cid),
+                time=time(hour=hour, minute=0),
+                days=(0, 1, 2, 3, 4, 5, 6)  # All days of the week
             )
-            logger.info(f"Sent daily reminder to {employee_name}")
+        logger.info(f"Scheduled daily reminders for {employee_name}")
+
+async def send_daily_reminder(context: ContextTypes.DEFAULT_TYPE, employee_name: str, chat_id: int) -> None:
+    """Send a daily reminder to a specific employee"""
+    try:
+        # Skip if employee not active
+        if employee_name not in ACTIVE_EMPLOYEES:
+            logger.warning(f"Employee {employee_name} not registered. Skipping reminder.")
+            return
+            
+        current_time = datetime.now(pytz.timezone('Asia/Dubai'))
+        
+        if current_time.hour == 9:  # 9 AM
+            message = FIXED_MESSAGES['morning']
+        elif current_time.hour == 13:  # 1 PM
+            message = FIXED_MESSAGES['afternoon']
+        elif current_time.hour == 18:  # 6 PM
+            message = FIXED_MESSAGES['evening']
+        elif current_time.hour == 21:  # 9 PM
+            message = FIXED_MESSAGES['night']
+        else:
+            return
+
+        # Use active chat ID
+        active_chat_id = ACTIVE_EMPLOYEES[employee_name]
+        
+        # First check if the chat exists
+        try:
+            await context.bot.get_chat(active_chat_id)
         except Exception as e:
-            logger.error(f"Failed to send daily reminder to {employee_name}: {e}")
+            logger.warning(f"Chat {active_chat_id} for {employee_name} not found. Removing from active employees.")
+            del ACTIVE_EMPLOYEES[employee_name]
+            return
+
+        # If chat exists, send the message
+        await context.bot.send_message(
+            chat_id=active_chat_id,
+            text=message
+        )
+        logger.info(f"Sent daily reminder to {employee_name}")
+            
+    except Exception as e:
+        logger.error(f"Failed to send daily reminder to {employee_name}: {e}")
 
 async def ping():
     """Self-ping to keep the service alive"""
@@ -1006,3 +1049,51 @@ if __name__ == '__main__':
         pass
     except Exception as e:
         logger.error(f"Bot stopped due to error: {str(e)}")
+
+# Create FastAPI app
+fast_app = FastAPI()
+
+@fast_app.get("/")
+async def root():
+    return {"status": "ok", "message": "Bot is running"}
+
+@fast_app.get("/ping")
+async def ping_endpoint():
+    return {"status": "ok", "timestamp": datetime.now().isoformat()}
+
+async def register_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /register command for Madam to register employees"""
+    if str(update.message.chat_id) != YOUR_ID:
+        await update.message.reply_text("❌ Only Madam can register employees!")
+        return
+    
+    args = context.args
+    if len(args) != 2:
+        await update.message.reply_text(
+            "❌ Invalid command format.\n\n"
+            "Usage: /register <employee_name> <chat_id>\n"
+            "Example: /register rehan 1475715464"
+        )
+        return
+    
+    employee_name = args[0].lower()
+    chat_id = args[1]
+    
+    # Validate chat_id is numeric
+    if not chat_id.isdigit():
+        await update.message.reply_text("❌ Chat ID must be a number!")
+        return
+    
+    # Update EMPLOYEES dictionary
+    EMPLOYEES[employee_name] = chat_id
+    ACTIVE_EMPLOYEES[employee_name] = chat_id
+    
+    await update.message.reply_text(
+        f"✅ Successfully registered employee:\n"
+        f"Name: {employee_name}\n"
+        f"Chat ID: {chat_id}"
+    )
+    logger.info(f"Registered new employee: {employee_name} with chat ID {chat_id}")
+
+# Register the new command handler
+application.add_handler(CommandHandler("register", register_command))
