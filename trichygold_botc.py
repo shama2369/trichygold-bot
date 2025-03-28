@@ -967,28 +967,37 @@ async def ping():
         await asyncio.sleep(14 * 60)
 
 async def main():
-    # Start self-ping in background
-    ping_task = asyncio.create_task(ping())
-    
-    # Set up daily reminders
-    await setup_daily_reminders(application)
-    
-    # Start the bot
-    await application.initialize()
-    await application.start()
-    
-    # Run the bot
-    await application.run_polling(allowed_updates=Update.ALL_TYPES)
+    try:
+        # Start self-ping in background
+        ping_task = asyncio.create_task(ping())
+        
+        # Set up daily reminders
+        await setup_daily_reminders(application)
+        
+        # Start the bot
+        await application.initialize()
+        await application.start()
+        
+        # Run the bot
+        await application.run_polling(allowed_updates=Update.ALL_TYPES)
+    except Exception as e:
+        logger.error(f"Error in main: {e}")
+        raise
+    finally:
+        # Clean up
+        if 'ping_task' in locals():
+            ping_task.cancel()
+            try:
+                await ping_task
+            except asyncio.CancelledError:
+                pass
+        await application.stop()
+        await application.shutdown()
 
 if __name__ == '__main__':
-    # Create and run event loop
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
     try:
-        loop.run_until_complete(main())
+        asyncio.run(main())
     except KeyboardInterrupt:
         logger.info("Bot stopped by user")
     except Exception as e:
         logger.error(f"Bot stopped due to error: {e}")
-    finally:
-        loop.close()
