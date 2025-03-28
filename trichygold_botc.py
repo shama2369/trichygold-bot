@@ -6,15 +6,10 @@ import uvicorn
 import logging
 from datetime import datetime, time, timedelta
 import aiohttp
-import os
 import pytz
 from fastapi import FastAPI
 import hypercorn.asyncio
-from dotenv import load_dotenv
 from database import SessionLocal, Task, Concern
-
-# Load environment variables
-load_dotenv()
 
 # Set up logging
 logging.basicConfig(
@@ -28,20 +23,11 @@ BOT_TOKEN = '7358468280:AAGktrhJSHmhHWlW8KmME_ST5P6VQkoj_Vo'
 YOUR_ID = '1341853859'  # Madam's ID
 SERVICE_URL = 'https://trichygold-bot.onrender.com'
 PORT = 8000
+
+# Employee Configuration
 EMPLOYEES = {
-    'shameem': os.getenv('SHAMEEM_ID'),
-    'rehan': os.getenv('REHAN_ID'),
-    'employee3': os.getenv('EMPLOYEE3_ID'),
-    'employee4': os.getenv('EMPLOYEE4_ID'),
-    'employee5': os.getenv('EMPLOYEE5_ID'),
-    'employee6': os.getenv('EMPLOYEE6_ID'),
-    'employee7': os.getenv('EMPLOYEE7_ID'),
-    'employee8': os.getenv('EMPLOYEE8_ID'),
-    'employee9': os.getenv('EMPLOYEE9_ID'),
-    'employee10': os.getenv('EMPLOYEE10_ID'),
-    'employee11': os.getenv('EMPLOYEE11_ID'),
-    'employee12': os.getenv('EMPLOYEE12_ID'),
-    'employee13': os.getenv('EMPLOYEE13_ID'),
+    'shameem': '1341853859',  # Madam's ID
+    'rehan': '1475715464'
 }
 
 # Initialize FastAPI and Bot
@@ -108,7 +94,7 @@ DAILY_MESSAGES = [
 ]
 
 # Add after the global variables
-PING_URL = os.getenv('PING_URL', 'https://your-ping-url.com')  # Replace with your actual ping URL
+PING_URL = 'https://trichygold-bot.onrender.com/ping'
 LAST_PING = datetime.now()
 
 # Helper Functions
