@@ -949,29 +949,31 @@ async def send_daily_reminder(context: ContextTypes.DEFAULT_TYPE):
             logger.error(f"Failed to send daily reminder to {employee_name}: {e}")
 
 async def ping():
-    """Keep the bot alive by sending periodic pings"""
-    while True:
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(PING_URL) as response:
-                    if response.status == 200:
-                        global LAST_PING
-                        LAST_PING = datetime.now()
-                        logger.info(f"Ping successful at {LAST_PING}")
-                    else:
-                        logger.warning(f"Ping failed with status {response.status}")
-        except Exception as e:
-            logger.error(f"Ping error: {e}")
+    """Self-ping to keep the service alive"""
+    try:
+        # Get the service URL from environment or use a default
+        service_url = os.getenv('SERVICE_URL', 'https://trichygold-bot.onrender.com')
+        ping_url = f"{service_url}/ping"
         
-        # Ping every 14 minutes to stay within the 15-minute timeout
-        await asyncio.sleep(14 * 60)
+        async with aiohttp.ClientSession() as session:
+            while True:
+                try:
+                    async with session.get(ping_url, timeout=30) as response:
+                        if response.status == 200:
+                            logger.info(f"Ping successful at {datetime.now()}")
+                        else:
+                            logger.warning(f"Ping failed with status {response.status}")
+                except Exception as e:
+                    logger.error(f"Ping error: {e}")
+                
+                # Wait for 14 minutes before next ping
+                await asyncio.sleep(14 * 60)
+    except Exception as e:
+        logger.error(f"Ping service error: {e}")
 
 async def main():
     try:
-        # Start self-ping in background
-        ping_task = asyncio.create_task(ping())
-        
-        # Set up daily reminders
+        # Set up daily reminders first
         await setup_daily_reminders(application)
         
         # Start the bot
@@ -983,10 +985,14 @@ async def main():
         config = uvicorn.Config(app, host='0.0.0.0', port=port)
         server = uvicorn.Server(config)
         
+        # Start ping in background
+        ping_task = asyncio.create_task(ping())
+        
         # Run both the bot and web server
         await asyncio.gather(
             application.run_polling(allowed_updates=Update.ALL_TYPES),
-            server.serve()
+            server.serve(),
+            ping_task
         )
     except Exception as e:
         logger.error(f"Error in main: {e}")
@@ -1015,4 +1021,7 @@ if __name__ == '__main__':
     except Exception as e:
         logger.error(f"Bot stopped due to error: {e}")
     finally:
-        loop.close()
+        try:
+            loop.close()
+        except Exception as e:
+            logger.error(f"Error closing event loop: {e}")
