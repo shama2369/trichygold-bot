@@ -978,8 +978,16 @@ async def main():
         await application.initialize()
         await application.start()
         
-        # Run the bot
-        await application.run_polling(allowed_updates=Update.ALL_TYPES)
+        # Start the web server
+        port = int(os.getenv('PORT', 8000))
+        config = uvicorn.Config(app, host='0.0.0.0', port=port)
+        server = uvicorn.Server(config)
+        
+        # Run both the bot and web server
+        await asyncio.gather(
+            application.run_polling(allowed_updates=Update.ALL_TYPES),
+            server.serve()
+        )
     except Exception as e:
         logger.error(f"Error in main: {e}")
         raise
@@ -996,8 +1004,15 @@ async def main():
 
 if __name__ == '__main__':
     try:
-        asyncio.run(main())
+        # Create and set event loop
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        # Run the main function
+        loop.run_until_complete(main())
     except KeyboardInterrupt:
         logger.info("Bot stopped by user")
     except Exception as e:
         logger.error(f"Bot stopped due to error: {e}")
+    finally:
+        loop.close()
