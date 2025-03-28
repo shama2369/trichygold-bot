@@ -9,6 +9,7 @@ import aiohttp
 import os
 import pytz
 from fastapi import FastAPI
+import hypercorn.asyncio
 
 # Set up logging
 logging.basicConfig(
@@ -37,7 +38,7 @@ EMPLOYEES = {
 }
 
 # Initialize Flask and Bot
-app = Quart(__name__)
+app = FastAPI()
 application = Application.builder().token(BOT_TOKEN).build()
 
 # Dictionary to store active employee chat IDs
@@ -132,26 +133,60 @@ def create_task_keyboard():
 # Command Handlers
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /start command"""
-    try:
-        chat_id = update.effective_chat.id
-        user_name = update.effective_user.username or update.effective_user.first_name
-        
-        # Check if user is an employee
+    chat_id = str(update.message.chat_id)
+    user_name = update.message.from_user.first_name
+    
+    if chat_id == YOUR_ID:
+        # Welcome message for Madam
+        welcome_text = (
+            f"👋 Welcome Madam!\n\n"
+            f"I'm your task management assistant. Here's what you can do:\n\n"
+            f"📝 /assign - Assign tasks to employees\n"
+            f"👥 /register - Register new employees\n"
+            f"❓ /help - Show all available commands\n\n"
+            f"Need help? Just use /help to see all commands!"
+        )
+        await update.message.reply_text(welcome_text)
+    else:
+        # Check if employee is registered
         employee_name = None
-        for name, emp_chat_id in EMPLOYEES.items():
-            if emp_chat_id == str(chat_id):
+        for name, emp_id in EMPLOYEES.items():
+            if emp_id == chat_id:
                 employee_name = name
                 break
         
         if employee_name:
-            ACTIVE_EMPLOYEES[employee_name] = chat_id
-            await update.message.reply_text(f"Welcome back {employee_name}! You are now registered for daily reminders.")
-            logger.info(f"Employee {employee_name} registered with chat ID {chat_id}")
+            # Welcome message for registered employees
+            welcome_text = (
+                f"👋 Welcome {user_name}!\n\n"
+                f"I'm your task management assistant. Here's what you can do:\n\n"
+                f"📋 /mydone - View and mark your tasks as done\n"
+                f"❓ /help - Show all available commands\n\n"
+                f"Need help? Just use /help to see all commands!"
+            )
+            await update.message.reply_text(welcome_text)
         else:
-            await update.message.reply_text("Welcome! Please contact admin for registration.")
+            # Message for unregistered users
+            welcome_text = (
+                f"👋 Welcome {user_name}!\n\n"
+                f"I'm the Trichy Gold task management bot.\n"
+                f"Please contact Madam to get registered in the system.\n\n"
+                f"Once registered, you'll be able to:\n"
+                f"📋 View and manage your tasks\n"
+                f"✅ Mark tasks as completed\n"
+                f"❓ Get help with commands"
+            )
+            await update.message.reply_text(welcome_text)
             
-    except Exception as e:
-        logger.error(f"Error in start command: {e}")
+            # Notify Madam about new user
+            try:
+                await context.bot.send_message(
+                    chat_id=YOUR_ID,
+                    text=f"👤 New user {user_name} (ID: {chat_id}) has started the bot.\n"
+                         f"Use /register to add them to the system."
+                )
+            except Exception as e:
+                logger.error(f"Failed to send notification to Madam: {e}")
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.message.chat_id)
@@ -868,21 +903,13 @@ async def send_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 # Webhook handlers
-@app.route('/')
-async def health_check():
-    global LAST_PING
-    time_since_last_ping = datetime.now() - LAST_PING
-    status = "healthy" if time_since_last_ping < timedelta(minutes=15) else "warning"
-    return {
-        "status": status,
-        "last_ping": LAST_PING.isoformat(),
-        "time_since_last_ping": str(time_since_last_ping),
-        "bot_running": True
-    }, 200
+@app.get("/")
+async def root():
+    return {"status": "ok", "message": "Bot is running"}
 
-@app.route('/ping')
-async def ping_handler():
-    return 'OK', 200
+@app.get("/ping")
+async def ping_endpoint():
+    return {"status": "ok", "timestamp": datetime.now().isoformat()}
 
 @app.route('/register', methods=['POST'])
 async def register_employee():
@@ -1054,53 +1081,6 @@ async def ping():
         except Exception as e:
             logger.error(f"Failed to send notification to Madam: {e}")
 
-async def main():
-    try:
-        # Set up the Quart app
-        app.config['PREFERRED_URL_SCHEME'] = 'https'
-        
-        # Initialize the bot application
-        await application.initialize()
-        await application.start()
-        await application.updater.start_polling()
-
-        # Set up daily reminders
-        await setup_daily_reminders(application)
-        
-        # Start ping in background to handle uptime monitoring
-        ping_task = asyncio.create_task(ping())
-        
-        # Start the Quart app
-        port = int(os.getenv('PORT', 8080))
-        await app.run_task(host='0.0.0.0', port=port)
-        
-    except Exception as e:
-        logger.error(f"Error in main: {str(e)}")
-        if 'ping_task' in locals():
-            ping_task.cancel()
-        await application.stop()
-        raise e
-
-if __name__ == '__main__':
-    try:
-        # Use asyncio.run() which handles the event loop properly
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        pass
-    except Exception as e:
-        logger.error(f"Bot stopped due to error: {str(e)}")
-
-# Create FastAPI app
-fast_app = FastAPI()
-
-@fast_app.get("/")
-async def root():
-    return {"status": "ok", "message": "Bot is running"}
-
-@fast_app.get("/ping")
-async def ping_endpoint():
-    return {"status": "ok", "timestamp": datetime.now().isoformat()}
-
 async def register_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /register command for Madam to register employees"""
     if str(update.message.chat_id) != YOUR_ID:
@@ -1135,5 +1115,55 @@ async def register_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     logger.info(f"Registered new employee: {employee_name} with chat ID {chat_id}")
 
-# Register the new command handler
-application.add_handler(CommandHandler("register", register_command))
+# Start both servers
+async def start_servers():
+    # Start FastAPI server
+    config = uvicorn.Config(app, host="0.0.0.0", port=8000, log_level="info")
+    server = uvicorn.Server(config)
+    await server.serve()
+    
+    # Start Quart server
+    await hypercorn.asyncio.serve(app_quart, hypercorn.Config())
+
+async def main():
+    # Set up logging
+    logging.basicConfig(
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        level=logging.INFO
+    )
+    logger.info("Starting bot...")
+    
+    # Initialize bot
+    global application
+    application = Application.builder().token(BOT_TOKEN).build()
+    
+    # Add handlers
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("assign", assign_task))
+    application.add_handler(CommandHandler("mydone", handle_mydone_response))
+    application.add_handler(CommandHandler("register", register_command))
+    
+    # Set up daily reminders
+    await setup_daily_reminders(application)
+    
+    # Start ping service
+    asyncio.create_task(ping())
+    
+    # Start webhook
+    await application.bot.set_webhook(url=f"{SERVICE_URL}/webhook/{BOT_TOKEN}")
+    
+    # Start both servers
+    await start_servers()
+    
+    # Start the bot
+    await application.run_polling(allowed_updates=Update.ALL_TYPES)
+
+if __name__ == '__main__':
+    try:
+        # Use asyncio.run() which handles the event loop properly
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        pass
+    except Exception as e:
+        logger.error(f"Bot stopped due to error: {str(e)}")
