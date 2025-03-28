@@ -973,55 +973,36 @@ async def ping():
 
 async def main():
     try:
-        # Set up daily reminders first
-        await setup_daily_reminders(application)
+        # Set up the Quart app
+        app.config['PREFERRED_URL_SCHEME'] = 'https'
         
-        # Start the bot
+        # Initialize the bot application
         await application.initialize()
         await application.start()
+        await application.updater.start_polling()
+
+        # Set up daily reminders
+        await setup_daily_reminders(application)
         
-        # Start the web server
-        port = int(os.getenv('PORT', 8000))
-        config = uvicorn.Config(app, host='0.0.0.0', port=port)
-        server = uvicorn.Server(config)
-        
-        # Start ping in background
+        # Start ping in background to handle uptime monitoring
         ping_task = asyncio.create_task(ping())
         
-        # Run both the bot and web server
-        await asyncio.gather(
-            application.run_polling(allowed_updates=Update.ALL_TYPES),
-            server.serve(),
-            ping_task
-        )
+        # Start the Quart app
+        port = int(os.getenv('PORT', 8080))
+        await app.run_task(host='0.0.0.0', port=port)
+        
     except Exception as e:
-        logger.error(f"Error in main: {e}")
-        raise
-    finally:
-        # Clean up
+        logger.error(f"Error in main: {str(e)}")
         if 'ping_task' in locals():
             ping_task.cancel()
-            try:
-                await ping_task
-            except asyncio.CancelledError:
-                pass
         await application.stop()
-        await application.shutdown()
+        raise e
 
 if __name__ == '__main__':
     try:
-        # Create and set event loop
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        
-        # Run the main function
-        loop.run_until_complete(main())
+        # Use asyncio.run() which handles the event loop properly
+        asyncio.run(main())
     except KeyboardInterrupt:
-        logger.info("Bot stopped by user")
+        pass
     except Exception as e:
-        logger.error(f"Bot stopped due to error: {e}")
-    finally:
-        try:
-            loop.close()
-        except Exception as e:
-            logger.error(f"Error closing event loop: {e}")
+        logger.error(f"Bot stopped due to error: {str(e)}")
