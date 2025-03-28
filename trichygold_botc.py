@@ -992,27 +992,67 @@ async def send_daily_reminder(context: ContextTypes.DEFAULT_TYPE, employee_name:
         logger.error(f"Failed to send daily reminder to {employee_name}: {e}")
 
 async def ping():
-    """Self-ping to keep the service alive"""
+    """Ping service to keep it alive"""
     try:
-        # Get the service URL from environment or use a default
         service_url = os.getenv('SERVICE_URL', 'https://trichygold-bot.onrender.com')
         ping_url = f"{service_url}/ping"
-        
+        retry_count = 0
+        max_retries = 3
+        retry_delay = 60  # 1 minute
+
         async with aiohttp.ClientSession() as session:
             while True:
                 try:
                     async with session.get(ping_url, timeout=30) as response:
                         if response.status == 200:
                             logger.info(f"Ping successful at {datetime.now()}")
+                            retry_count = 0  # Reset retry count on success
                         else:
                             logger.warning(f"Ping failed with status {response.status}")
+                            retry_count += 1
+                            
+                            if retry_count >= max_retries:
+                                logger.error(f"Ping failed {max_retries} times. Service might be down!")
+                                # Notify Madam about potential service issues
+                                try:
+                                    await application.bot.send_message(
+                                        chat_id=YOUR_ID,
+                                        text=f"⚠️ Warning: Bot service might be down! Last ping failed with status {response.status}"
+                                    )
+                                except Exception as e:
+                                    logger.error(f"Failed to send notification to Madam: {e}")
+                                retry_count = 0
                 except Exception as e:
                     logger.error(f"Ping error: {e}")
+                    retry_count += 1
+                    
+                    if retry_count >= max_retries:
+                        logger.error(f"Ping failed {max_retries} times. Service might be down!")
+                        # Notify Madam about potential service issues
+                        try:
+                            await application.bot.send_message(
+                                chat_id=YOUR_ID,
+                                text=f"⚠️ Warning: Bot service might be down! Last ping error: {str(e)}"
+                            )
+                        except Exception as e:
+                            logger.error(f"Failed to send notification to Madam: {e}")
+                        retry_count = 0
                 
-                # Wait for 14 minutes before next ping
-                await asyncio.sleep(14 * 60)
+                # If we had retries, wait less time before next ping
+                if retry_count > 0:
+                    await asyncio.sleep(retry_delay)
+                else:
+                    await asyncio.sleep(14 * 60)  # Normal 14-minute interval
     except Exception as e:
         logger.error(f"Ping service error: {e}")
+        # Try to notify Madam about the ping service error
+        try:
+            await application.bot.send_message(
+                chat_id=YOUR_ID,
+                text=f"⚠️ Critical: Ping service error: {str(e)}"
+            )
+        except Exception as e:
+            logger.error(f"Failed to send notification to Madam: {e}")
 
 async def main():
     try:
