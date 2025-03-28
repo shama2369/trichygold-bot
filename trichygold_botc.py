@@ -10,6 +10,11 @@ import os
 import pytz
 from fastapi import FastAPI
 import hypercorn.asyncio
+from dotenv import load_dotenv
+from database import SessionLocal, Task, Concern
+
+# Load environment variables
+load_dotenv()
 
 # Set up logging
 logging.basicConfig(
@@ -20,26 +25,26 @@ logger = logging.getLogger(__name__)
 
 # Bot Configuration
 BOT_TOKEN = '7358468280:AAGktrhJSHmhHWlW8KmME_ST5P6VQkoj_Vo'
-YOUR_ID = '1341853859'
-SERVICE_URL = os.getenv('SERVICE_URL', 'https://trichygold-bot.onrender.com')
-PORT = int(os.getenv('PORT', 8000))
+YOUR_ID = '1341853859'  # Madam's ID
+SERVICE_URL = 'https://trichygold-bot.onrender.com'
+PORT = 8000
 EMPLOYEES = {
-    'shameem': '1341853859',
-    'rehan': '1475715464',
-    'employee3': 'CHAT_ID_3',
-    'employee4': 'CHAT_ID_4',
-    'employee5': 'CHAT_ID_5',
-    'employee6': 'CHAT_ID_6',
-    'employee7': 'CHAT_ID_7',
-    'employee8': 'CHAT_ID_8',
-    'employee9': 'CHAT_ID_9',
-    'employee10': 'CHAT_ID_10',
-    'employee11': 'CHAT_ID_11',
-    'employee12': 'CHAT_ID_12',
-    'employee13': 'CHAT_ID_13',
+    'shameem': os.getenv('SHAMEEM_ID'),
+    'rehan': os.getenv('REHAN_ID'),
+    'employee3': os.getenv('EMPLOYEE3_ID'),
+    'employee4': os.getenv('EMPLOYEE4_ID'),
+    'employee5': os.getenv('EMPLOYEE5_ID'),
+    'employee6': os.getenv('EMPLOYEE6_ID'),
+    'employee7': os.getenv('EMPLOYEE7_ID'),
+    'employee8': os.getenv('EMPLOYEE8_ID'),
+    'employee9': os.getenv('EMPLOYEE9_ID'),
+    'employee10': os.getenv('EMPLOYEE10_ID'),
+    'employee11': os.getenv('EMPLOYEE11_ID'),
+    'employee12': os.getenv('EMPLOYEE12_ID'),
+    'employee13': os.getenv('EMPLOYEE13_ID'),
 }
 
-# Initialize Flask and Bot
+# Initialize FastAPI and Bot
 app = FastAPI()
 application = Application.builder().token(BOT_TOKEN).build()
 
@@ -229,95 +234,58 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(help_text)
 
 async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /assign command"""
     if str(update.message.chat_id) != YOUR_ID:
-        await update.message.reply_text("❌ Only Madam can assign tasks!")
+        await update.message.reply_text("❌ Only admin can assign tasks.")
         return
-    
+
     try:
+        # Parse command arguments
         args = context.args
         if len(args) < 2:
-            raise ValueError("Not enough arguments")
-        
-        # Handle multiple employees
-        employees = [emp.strip().lower() for emp in args[0].split(',')]
-        invalid_employees = [emp for emp in employees if emp not in EMPLOYEES]
-        
-        if invalid_employees:
-            await update.message.reply_text(
-                f"❌ Invalid employee(s): {', '.join(invalid_employees)}\n\n"
-                f"Available employees: {', '.join(EMPLOYEES.keys())}"
-            )
+            await update.message.reply_text("❌ Usage: /assign employee1,employee2 task_description [minutes]")
             return
-        
-        # Parse task and minutes
-        if len(args) > 2 and args[-1].isdigit():
-            task = ' '.join(args[1:-1])
-            minutes = int(args[-1])
-        else:
-            task = ' '.join(args[1:])
-            minutes = 60
-        
-        # Send task to each employee
-        confirmation_messages = []
+
+        employees = args[0].split(',')
+        task_text = ' '.join(args[1:-1]) if len(args) > 2 else args[1]
+        minutes = int(args[-1]) if len(args) > 2 and args[-1].isdigit() else 30
+
+        # Validate employees
+        invalid_employees = [emp for emp in employees if emp not in EMPLOYEES]
+        if invalid_employees:
+            await update.message.reply_text(f"❌ Unknown employees: {', '.join(invalid_employees)}")
+            return
+
+        db = SessionLocal()
         for employee in employees:
-            chat_id = EMPLOYEES[employee]
-            msg = await context.bot.send_message(
-                chat_id=chat_id,
-                text=format_task_message(task, minutes),
-                reply_markup=create_task_keyboard()
+            # Create task in database
+            new_task = Task(
+                task_text=task_text,
+                assigned_to=employee,
+                reminder_minutes=minutes
             )
-            
-            # Set up reminders for each employee
-            if context.job_queue is None:
-                logger.error("Job queue is None!")
-                await update.message.reply_text("❌ Error: Reminder scheduling failed.")
-                return
-            
-            job = context.job_queue.run_repeating(
-                send_reminder,
-                interval=minutes * 60,
-                first=minutes * 60,
-                data={'chat_id': chat_id, 'task': task}
-            )
-            
-            # Store task information for each employee
-            confirmation = await update.message.reply_text(
-                f"✅ Task assigned to {employee}:\n{task}\n"
-                f"Reminders every {minutes} minutes"
-            )
-            
-            CONTEXT[confirmation.message_id] = {
-                'employee': employee,
-                'task': task,
-                'chat_id': chat_id,
-                'task_msg_id': msg.message_id,
-                'job': job,
-                'status': 'active',
-                'assigned_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                'team_task': len(employees) > 1,
-                'team_members': employees
-            }
-            
-            confirmation_messages.append(confirmation.message_id)
-            logger.info(f"Task assigned to {employee}: {task} (reminders every {minutes} minutes)")
+            db.add(new_task)
+            db.commit()
+
+            # Send task to employee
+            try:
+                message = format_task_message(task_text, minutes)
+                await context.bot.send_message(
+                    chat_id=EMPLOYEES[employee],
+                    text=message,
+                    reply_markup=create_task_keyboard()
+                )
+            except Exception as e:
+                logger.error(f"Failed to send task to {employee}: {e}")
+                continue
+
+        await update.message.reply_text("✅ Tasks assigned successfully!")
         
-        # Send team task notification if multiple employees
-        if len(employees) > 1:
-            team_message = (
-                f"👥 Team Task Assigned!\n\n"
-                f"Task: {task}\n"
-                f"Team Members: {', '.join(employees)}\n"
-                f"Reminders every {minutes} minutes\n\n"
-                f"Please coordinate with your team members."
-            )
-            await update.message.reply_text(team_message)
-        
-    except ValueError as e:
-        await update.message.reply_text(
-            "❌ Invalid command format.\n\n"
-            "Usage: /assign <employee1,employee2,...> <task> [minutes]\n"
-            "Example: /assign rehan,shameem check inventory 30"
-        )
+    except Exception as e:
+        logger.error(f"Error in assign_task: {e}")
+        await update.message.reply_text("❌ Failed to assign task. Please try again.")
+    finally:
+        db.close()
 
 async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if str(update.message.chat_id) != YOUR_ID:
@@ -1023,8 +991,7 @@ async def send_daily_reminder(context: ContextTypes.DEFAULT_TYPE, employee_name:
 async def ping():
     """Ping service to keep it alive"""
     try:
-        service_url = os.getenv('SERVICE_URL', 'https://trichygold-bot.onrender.com')
-        ping_url = f"{service_url}/ping"
+        ping_url = f"{SERVICE_URL}/ping"
         retry_count = 0
         max_retries = 3
         retry_delay = 60  # 1 minute
