@@ -21,6 +21,8 @@ logger = logging.getLogger(__name__)
 # Bot Configuration
 BOT_TOKEN = '7358468280:AAGktrhJSHmhHWlW8KmME_ST5P6VQkoj_Vo'
 YOUR_ID = '1341853859'
+SERVICE_URL = os.getenv('SERVICE_URL', 'https://trichygold-bot.onrender.com')
+PORT = int(os.getenv('PORT', 8000))
 EMPLOYEES = {
     'shameem': '1341853859',
     'rehan': '1475715464',
@@ -1118,7 +1120,7 @@ async def register_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Start both servers
 async def start_servers():
     # Start FastAPI server
-    config = uvicorn.Config(app, host="0.0.0.0", port=8000, log_level="info")
+    config = uvicorn.Config(app, host="0.0.0.0", port=PORT, log_level="info")
     server = uvicorn.Server(config)
     await server.serve()
     
