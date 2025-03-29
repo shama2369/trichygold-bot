@@ -4,7 +4,7 @@ from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandl
 from quart import Quart, request
 import uvicorn
 import logging
-from datetime import datetime, time
+from datetime import datetime
 
 # Set up logging
 logging.basicConfig(
@@ -41,23 +41,6 @@ CONTEXT = {}
 CONCERN_CONTEXT = {}
 TASK_STATUS = {}
 
-# Update the daily messages
-DAILY_MESSAGES = [
-    "🌅 Good Morning TrichyGold Team!\n\n"
-    "📊 Today's Focus:\n"
-    "• Check daily sales target\n"
-    "• Review inventory status\n"
-    "• Plan customer follow-ups\n\n"
-    "💪 Let's make today successful!",
-    
-    "🌇 Good Afternoon TrichyGold Team!\n\n"
-    "📈 Mid-day Check:\n"
-    "• How are sales going?\n"
-    "• Any customer feedback?\n"
-    "• Need any support?\n\n"
-    "Keep up the great work! 💪"
-]
-
 # Helper Functions
 def get_employee_name(chat_id):
     for name, eid in EMPLOYEES.items():
@@ -65,21 +48,14 @@ def get_employee_name(chat_id):
             return name
     return None
 
-def format_task_message(task: str, minutes: int) -> str:
-    return (
-        f"📝 New Task Assigned!\n\n"
-        f"Task: {task}\n"
-        f"Reminders every {minutes} minutes\n\n"
-        f"To respond:\n"
-        f"• Use /concern to raise any concerns\n"
-        f"• Use /mydone to mark task as completed"
-    )
+def format_task_message(task, minutes):
+    return f"📋 New Task Assigned!\n\nTask: {task}\nReminder: Every {minutes} minutes\n\nPlease reply to this message with:\n• Text updates\n• Voice messages\n• Files/documents\n• 'done' when completed"
 
 def create_task_keyboard():
     keyboard = [
         [
-            InlineKeyboardButton("📝 Mark as Done", callback_data="mydone"),
-            InlineKeyboardButton("❓ Raise Concern", callback_data="concern")
+            InlineKeyboardButton("Mark as Done ✅", callback_data="done"),
+            InlineKeyboardButton("Ask for Clarification ❓", callback_data="clarify")
         ]
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -92,27 +68,21 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if chat_id == YOUR_ID:
         welcome_message = (
             "👋 Welcome to TrichyGold Task Manager!\n\n"
-            "📚 Available Commands:\n"
-            "/assign <employee1,employee2,...> <task> [minutes]\n"
-            "  Example: /assign rehan,shameem check inventory 30\n\n"
-            "/list - View all active tasks\n"
+            "Available Commands:\n"
+            "/assign - Assign a task to an employee\n"
+            "/list - List all active tasks\n"
             "/done - Mark a task as completed\n"
-            "/clarify - Send clarification for a task\n"
-            "/concerns - View all concerns\n"
-            "/help - Show detailed help message"
+            "/help - Show this help message"
         )
     else:
         welcome_message = (
             f"👋 Welcome {employee_name}!\n\n"
-            "📚 Available Commands:\n"
-            "/mydone - Mark your task as completed\n"
-            "  Example: /mydone 1\n\n"
-            "/concern - Raise a concern about a task\n"
-            "  Example: /concern 1 Need more materials\n\n"
+            "Available Commands:\n"
+            "/concern - Raise a concern to Madam\n"
+            "/help - Show this help message\n\n"
             "To respond to tasks:\n"
-            "• Use /mydone to mark tasks as completed\n"
-            "• Use /concern to raise concerns\n"
-            "/help - Show detailed help message"
+            "• Reply to task messages with text/voice/files\n"
+            "• Use 'done' to mark tasks as completed"
         )
     
     await update.message.reply_text(welcome_message)
@@ -122,32 +92,25 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if chat_id == YOUR_ID:
         help_text = (
             "📚 Admin Commands:\n\n"
-            "/assign <employee1,employee2,...> <task> [minutes]\n"
-            "  Example: /assign rehan,shameem check inventory 30\n\n"
+            "/assign <employee> <task> [minutes]\n"
+            "  Example: /assign rehan check inventory 30\n\n"
             "/list - View all active tasks\n"
             "/done - Mark a task as completed\n"
-            "/clarify - Send clarification for a task\n"
-            "/concerns - View all concerns\n"
-            "/setmessage - Update daily messages\n"
-            "/viewmessages - View current messages\n\n"
+            "/concerns - View all concerns\n\n"
             "To clarify tasks:\n"
-            "• Use /clarify to select a task\n"
-            "• Then send voice/photo"
+            "• Reply to task confirmation with voice/photo"
         )
     else:
         help_text = (
             "📚 Employee Commands:\n\n"
-            "/mydone - Mark your task as completed\n"
-            "  Example: /mydone 1\n\n"
-            "/concern - Raise a concern about a task\n"
-            "  Example: /concern 1 Need more materials\n\n"
+            "/concern - Raise a concern to Madam\n"
+            "  Example: /concern Need more materials\n\n"
             "To respond to tasks:\n"
-            "• Use /mydone to mark tasks as completed\n"
-            "• Use /concern to raise concerns\n\n"
-            "To raise concerns:\n"
-            "• Use /concern to see your tasks\n"
-            "• Then use /concern <task_number> <your concern>\n"
-            "• Or send voice/photo after selecting task"
+            "• Reply to task messages with:\n"
+            "  - Text updates\n"
+            "  - Voice messages\n"
+            "  - Files/documents\n"
+            "  - 'done' when completed"
         )
     
     await update.message.reply_text(help_text)
@@ -162,13 +125,10 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if len(args) < 2:
             raise ValueError("Not enough arguments")
         
-        # Handle multiple employees
-        employees = [emp.strip().lower() for emp in args[0].split(',')]
-        invalid_employees = [emp for emp in employees if emp not in EMPLOYEES]
-        
-        if invalid_employees:
+        employee = args[0].lower()
+        if employee not in EMPLOYEES:
             await update.message.reply_text(
-                f"❌ Invalid employee(s): {', '.join(invalid_employees)}\n\n"
+                f"❌ Employee '{employee}' not found.\n\n"
                 f"Available employees: {', '.join(EMPLOYEES.keys())}"
             )
             return
@@ -181,9 +141,6 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
             task = ' '.join(args[1:])
             minutes = 60
         
-        # Send task to each employee
-        confirmation_messages = []
-        for employee in employees:
         chat_id = EMPLOYEES[employee]
         msg = await context.bot.send_message(
             chat_id=chat_id,
@@ -191,7 +148,12 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=create_task_keyboard()
         )
         
-            # Set up reminders for each employee
+        confirmation = await update.message.reply_text(
+            f"✅ Task assigned to {employee}:\n{task}\n"
+            f"Reminders every {minutes} minutes"
+        )
+        
+        # Set up reminders
         if context.job_queue is None:
             logger.error("Job queue is None!")
             await update.message.reply_text("❌ Error: Reminder scheduling failed.")
@@ -204,12 +166,7 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
             data={'chat_id': chat_id, 'task': task}
         )
         
-            # Store task information for each employee
-            confirmation = await update.message.reply_text(
-                f"✅ Task assigned to {employee}:\n{task}\n"
-                f"Reminders every {minutes} minutes"
-            )
-            
+        # Store task information
         CONTEXT[confirmation.message_id] = {
             'employee': employee,
             'task': task,
@@ -217,30 +174,16 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
             'task_msg_id': msg.message_id,
             'job': job,
             'status': 'active',
-                'assigned_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                'team_task': len(employees) > 1,
-                'team_members': employees
+            'assigned_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
         
-            confirmation_messages.append(confirmation.message_id)
         logger.info(f"Task assigned to {employee}: {task} (reminders every {minutes} minutes)")
-        
-        # Send team task notification if multiple employees
-        if len(employees) > 1:
-            team_message = (
-                f"👥 Team Task Assigned!\n\n"
-                f"Task: {task}\n"
-                f"Team Members: {', '.join(employees)}\n"
-                f"Reminders every {minutes} minutes\n\n"
-                f"Please coordinate with your team members."
-            )
-            await update.message.reply_text(team_message)
         
     except ValueError as e:
         await update.message.reply_text(
             "❌ Invalid command format.\n\n"
-            "Usage: /assign <employee1,employee2,...> <task> [minutes]\n"
-            "Example: /assign rehan,shameem check inventory 30"
+            "Usage: /assign <employee> <task> [minutes]\n"
+            "Example: /assign rehan check inventory 30"
         )
 
 async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -282,197 +225,110 @@ async def send_reminder(context: ContextTypes.DEFAULT_TYPE):
 
 async def concern(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.message.chat_id)
-    if chat_id == YOUR_ID:
-        await update.message.reply_text("Please use /concerns to view concerns.")
+    if chat_id not in EMPLOYEES.values():
+        await update.message.reply_text("❌ Only employees can raise concerns!")
         return
     
-    # Check if employee has any active tasks
-    employee = None
-    for task_info in CONTEXT.values():
-        if str(task_info['chat_id']) == chat_id:
-            employee = task_info['employee']
-            break
+    employee_name = get_employee_name(chat_id)
     
-    if not employee:
-        await update.message.reply_text("You don't have any active tasks to raise concerns about.")
-        return
-    
-    # Show active tasks for this employee
-    task_list = "Your Active Tasks:\n\n"
-    employee_tasks = []
-    for idx, (msg_id, task_info) in enumerate(CONTEXT.items(), 1):
-        if str(task_info['chat_id']) == chat_id:
-            task_list += f"{idx}. 📝 {task_info['task']}\n\n"
-            employee_tasks.append((msg_id, task_info))
-    
-    if not employee_tasks:
-        await update.message.reply_text("You don't have any active tasks to raise concerns about.")
-        return
-    
-    task_list += "\nTo raise a concern:\nUsage: /concern <task_number> <your concern>\nExample: /concern 1 Need more materials"
-    
-    # Store tasks for this employee
-    context.user_data['employee_tasks'] = employee_tasks
-    
-    await update.message.reply_text(task_list)
+    if context.args:
+        concern_message = ' '.join(context.args)
+        await context.bot.send_message(
+            chat_id=YOUR_ID,
+            text=f"⚠️ Concern from {employee_name}:\n{concern_message}"
+        )
+        await update.message.reply_text("✅ Concern sent to Madam.")
+    else:
+        msg = await update.message.reply_text(
+            "📤 Send your concern as:\n"
+            "• Voice message\n"
+            "• File/document\n"
+            "• Photo"
+        )
+        CONCERN_CONTEXT[chat_id] = {
+            'prompt_msg_id': msg.message_id,
+            'employee': employee_name
+        }
 
 async def handle_concern_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.message.chat_id)
-    if chat_id == YOUR_ID:
+    if chat_id not in EMPLOYEES.values() or chat_id not in CONCERN_CONTEXT:
         return
     
-    # Check if we're in concern mode
-    if 'concern_task' in context.user_data:
-        task_info = context.user_data['concern_task']
-        employee = task_info['employee']
-        task = task_info['task']
-        
-        # Handle different types of media
-        if update.message.voice:
-            await context.bot.send_voice(
-                chat_id=YOUR_ID,
-                voice=update.message.voice.file_id,
-                caption=f"Voice concern from {employee} for task: {task}"
-            )
-        elif update.message.photo:
-            await context.bot.send_photo(
-                chat_id=YOUR_ID,
-                photo=update.message.photo[-1].file_id,
-                caption=f"Photo concern from {employee} for task: {task}"
-            )
-        elif update.message.document:
-            await context.bot.send_document(
-                chat_id=YOUR_ID,
-                document=update.message.document.file_id,
-                caption=f"Document concern from {employee} for task: {task}"
-            )
-        
-        await update.message.reply_text("Your concern has been sent to Madam.")
-        del context.user_data['concern_task']
+    if not update.message.reply_to_message:
         return
     
-    # Handle text concerns
-    if update.message.text and update.message.text.startswith('/concern'):
-        args = update.message.text.split(maxsplit=2)
-        if len(args) < 3:
-            await update.message.reply_text("Please use: /concern <task_number> <your concern>")
-            return
-        
-        try:
-            task_number = int(args[1])
-            concern_text = args[2]
-            
-            if 'employee_tasks' not in context.user_data:
-                await update.message.reply_text("Please use /concern first to see your tasks.")
-                return
-            
-            employee_tasks = context.user_data['employee_tasks']
-            if task_number < 1 or task_number > len(employee_tasks):
-                await update.message.reply_text(
-                    f"Invalid task number. Please use a number between 1 and {len(employee_tasks)}."
-                )
-                return
-            
-            # Get the task at the specified number
-            boss_msg_id, task_info = employee_tasks[task_number - 1]
-            
-            # Send the concern to Madam
-            await context.bot.send_message(
-                chat_id=YOUR_ID,
-                text=f"⚠️ Concern from {task_info['employee']}:\n\nTask: {task_info['task']}\nConcern: {concern_text}"
-            )
-            
-            await update.message.reply_text("Your concern has been sent to Madam.")
-            
-        except ValueError:
-            await update.message.reply_text(
-                "Please use a number to specify which task you're concerned about.\n"
-                "Example: /concern 1 Need more materials"
-            )
+    concern_info = CONCERN_CONTEXT.get(chat_id)
+    reply_msg_id = update.message.reply_to_message.message_id
+    
+    if reply_msg_id != concern_info['prompt_msg_id']:
         return
     
-    await update.message.reply_text("Please use /concern to select a task first.")
-
-async def clarify_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = str(update.message.chat_id)
-    if chat_id != YOUR_ID:
-        await update.message.reply_text("Only Madam can use /clarify!")
-        return
+    employee_name = concern_info['employee']
     
-    args = context.args
-    if not args:
-        # Show all active tasks with numbers
-        if not CONTEXT:
-            await update.message.reply_text("No active tasks.")
-            return
-        
-        task_list = "Active Tasks:\n\n"
-        for idx, (msg_id, task_info) in enumerate(CONTEXT.items(), 1):
-            task_list += f"{idx}. 👤 {task_info['employee']}\n📝 {task_info['task']}\n\n"
-        
-        await update.message.reply_text(
-            task_list + "\nTo send clarification:\n"
-            "Usage: /clarify <task_number>\n"
-            "Example: /clarify 1"
+    if update.message.voice:
+        voice_id = update.message.voice.file_id
+        await context.bot.send_voice(
+            chat_id=YOUR_ID,
+            voice=voice_id,
+            caption=f"⚠️ Voice concern from {employee_name}"
         )
+        await update.message.reply_text("✅ Voice concern sent to Madam.")
+    elif update.message.document or update.message.photo:
+        file_id = update.message.document.file_id if update.message.document else update.message.photo[-1].file_id
+        await context.bot.send_document(
+            chat_id=YOUR_ID,
+            document=file_id,
+            caption=f"⚠️ File concern from {employee_name}"
+        )
+        await update.message.reply_text("✅ File concern sent to Madam.")
+    else:
+        await update.message.reply_text("❌ Please send a voice message or file.")
         return
     
-    try:
-        task_number = int(args[0])
-        if task_number < 1 or task_number > len(CONTEXT):
-            await update.message.reply_text(
-                f"Invalid task number. Please use a number between 1 and {len(CONTEXT)}."
-            )
-            return
-        
-        # Get the task at the specified number
-        task_items = list(CONTEXT.items())
-        boss_msg_id, task_info = task_items[task_number - 1]
-        
-        # Store the task info for the next media message
-        context.user_data['clarify_task'] = task_info
-        
-        await update.message.reply_text(
-            f"Selected task for {task_info['employee']}: {task_info['task']}\n\n"
-            "Now send your voice message or photo for clarification."
-        )
-            
-    except ValueError:
-        await update.message.reply_text(
-            "Please use a number to specify which task to clarify.\n"
-            "Example: /clarify 1"
-        )
+    del CONCERN_CONTEXT[chat_id]
 
 async def handle_boss_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.message.chat_id)
-    if chat_id != YOUR_ID:
+    if chat_id != YOUR_ID or not update.message.reply_to_message:
         return
     
-    # Check if we're in clarification mode
-    if 'clarify_task' in context.user_data:
-        task_info = context.user_data['clarify_task']
-        employee = task_info['employee']
-        task = task_info['task']
-        
-        # Forward the media to the employee
-        if update.message.voice:
-            await context.bot.send_voice(
-                chat_id=EMPLOYEES[employee],
-                voice=update.message.voice.file_id,
-                caption=f"Voice clarification for task: {task}"
-            )
-        elif update.message.photo:
-            await context.bot.send_photo(
-                chat_id=EMPLOYEES[employee],
-                photo=update.message.photo[-1].file_id,
-                caption=f"Image clarification for task: {task}"
-            )
-        
-        await update.message.reply_text(f"Sent clarification to {employee}")
-        del context.user_data['clarify_task']
+    reply_msg_id = update.message.reply_to_message.message_id
+    if reply_msg_id not in CONTEXT:
+        await update.message.reply_text("❌ No active task found for this message.")
         return
     
-    await update.message.reply_text("Please use /clarify to select a task first.")
+    task_info = CONTEXT[reply_msg_id]
+    employee_chat_id = task_info['chat_id']
+    
+    if update.message.photo:
+        photo_file = update.message.photo[-1].file_id
+        await context.bot.send_photo(
+            chat_id=employee_chat_id,
+            photo=photo_file,
+            caption=f"📝 Task clarification for: {task_info['task']}"
+        )
+        await context.bot.send_photo(
+            chat_id=YOUR_ID,
+            photo=photo_file,
+            caption=f"✅ Photo clarification sent to {task_info['employee']}"
+        )
+        await update.message.reply_text(f"✅ Photo clarification sent to {task_info['employee']}.")
+    elif update.message.voice:
+        voice_file = update.message.voice.file_id
+        await context.bot.send_voice(
+            chat_id=employee_chat_id,
+            voice=voice_file,
+            caption=f"📝 Task clarification for: {task_info['task']}"
+        )
+        await context.bot.send_voice(
+            chat_id=YOUR_ID,
+            voice=voice_file,
+            caption=f"✅ Voice clarification sent to {task_info['employee']}"
+        )
+        await update.message.reply_text(f"✅ Voice clarification sent to {task_info['employee']}.")
+    else:
+        await update.message.reply_text("❌ Please send a photo or voice message for clarification.")
 
 async def handle_employee_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.message.chat_id)
@@ -527,18 +383,10 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
-    if query.data == "mydone":
-        # Trigger /mydone command
-        await query.message.reply_text("/mydone")
-    elif query.data == "concern":
-        # Trigger /concern command
-        await query.message.reply_text("/concern")
-    elif query.data == "done":
-        # Trigger /done command
-        await query.message.reply_text("/done")
+    if query.data == "done":
+        await query.message.reply_text("Please type 'done' to mark the task as completed.")
     elif query.data == "clarify":
-        # Trigger /clarify command
-        await query.message.reply_text("/clarify")
+        await query.message.reply_text("Please use /concern to ask for clarification.")
 
 async def done_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.message.chat_id)
@@ -602,149 +450,6 @@ async def done_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Example: /done 1"
         )
 
-async def mydone_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = str(update.message.chat_id)
-    if chat_id == YOUR_ID:
-        await update.message.reply_text("Please use /done to mark tasks as completed.")
-        return
-    
-    # Check if employee has any active tasks
-    employee = None
-    for task_info in CONTEXT.values():
-        if str(task_info['chat_id']) == chat_id:
-            employee = task_info['employee']
-            break
-    
-    if not employee:
-        await update.message.reply_text("You don't have any active tasks to mark as done.")
-        return
-    
-    # Show active tasks for this employee
-    task_list = "Your Active Tasks:\n\n"
-    employee_tasks = []
-    for idx, (msg_id, task_info) in enumerate(CONTEXT.items(), 1):
-        if str(task_info['chat_id']) == chat_id:
-            task_list += f"{idx}. 📝 {task_info['task']}\n\n"
-            employee_tasks.append((msg_id, task_info))
-    
-    if not employee_tasks:
-        await update.message.reply_text("You don't have any active tasks to mark as done.")
-        return
-    
-    task_list += "\nTo mark a task as done:\nUsage: /mydone <task_number>\nExample: /mydone 1"
-    
-    # Store tasks for this employee
-    context.user_data['employee_tasks'] = employee_tasks
-    
-    await update.message.reply_text(task_list)
-
-async def handle_mydone_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = str(update.message.chat_id)
-    if chat_id == YOUR_ID:
-        return
-    
-    # Handle text command
-    if update.message.text and update.message.text.startswith('/mydone'):
-        args = update.message.text.split(maxsplit=1)
-        if len(args) < 2:
-            await update.message.reply_text("Please use: /mydone <task_number>")
-            return
-        
-        try:
-            task_number = int(args[1])
-            
-            if 'employee_tasks' not in context.user_data:
-                await update.message.reply_text("Please use /mydone first to see your tasks.")
-                return
-            
-            employee_tasks = context.user_data['employee_tasks']
-            if task_number < 1 or task_number > len(employee_tasks):
-                await update.message.reply_text(
-                    f"Invalid task number. Please use a number between 1 and {len(employee_tasks)}."
-                )
-                return
-            
-            # Get the task at the specified number
-            boss_msg_id, task_info = employee_tasks[task_number - 1]
-            
-            # Mark the task as done
-            employee = task_info['employee']
-            task = task_info['task']
-            await context.bot.send_message(
-                chat_id=YOUR_ID,
-                text=f"✅ {employee} completed task: {task}"
-            )
-            if task_info['job']:
-                task_info['job'].schedule_removal()
-            task_info['status'] = 'completed'
-            task_info['completed_at'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            del CONTEXT[boss_msg_id]
-            
-            await update.message.reply_text("✅ Task marked as completed!")
-            
-            # Show remaining tasks
-            remaining_tasks = [t for t in employee_tasks if t[0] != boss_msg_id]
-            if remaining_tasks:
-                task_list = "Your Remaining Tasks:\n\n"
-                for idx, (msg_id, task_info) in enumerate(remaining_tasks, 1):
-                    task_list += f"{idx}. 📝 {task_info['task']}\n\n"
-                await update.message.reply_text(task_list)
-            
-        except ValueError:
-            await update.message.reply_text(
-                "Please use a number to specify which task to mark as done.\n"
-                "Example: /mydone 1"
-            )
-        return
-    
-    await update.message.reply_text("Please use /mydone to select a task first.")
-
-# Add message management commands
-async def set_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if str(update.message.chat_id) != YOUR_ID:
-        await update.message.reply_text("❌ Only Madam can set messages!")
-        return
-    
-    args = context.args
-    if len(args) < 2:
-        await update.message.reply_text(
-            "❌ Invalid command format.\n\n"
-            "Usage: /setmessage <1/2> <your message>\n"
-            "Example: /setmessage 1 Good morning team!"
-        )
-        return
-    
-    try:
-        message_num = int(args[0])
-        if message_num not in [1, 2]:
-            await update.message.reply_text("Please use 1 for morning message or 2 for afternoon message.")
-            return
-        
-        message = ' '.join(args[1:])
-        DAILY_MESSAGES[message_num - 1] = message
-        
-        await update.message.reply_text(
-            f"✅ Message {message_num} updated successfully!\n\n"
-            f"New message:\n{message}"
-        )
-    except ValueError:
-        await update.message.reply_text("Please use a number (1 or 2) to specify which message to update.")
-
-async def view_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if str(update.message.chat_id) != YOUR_ID:
-        await update.message.reply_text("❌ Only Madam can view messages!")
-        return
-    
-    message_list = (
-        "📝 Current Daily Messages:\n\n"
-        f"1️⃣ Morning Message (10:00 AM):\n{DAILY_MESSAGES[0]}\n\n"
-        f"2️⃣ Afternoon Message (4:00 PM):\n{DAILY_MESSAGES[1]}\n\n"
-        "To update a message:\n"
-        "Usage: /setmessage <1/2> <your message>"
-    )
-    
-    await update.message.reply_text(message_list)
-
 # Webhook handlers
 @app.route('/')
 async def health_check():
@@ -769,61 +474,28 @@ application.add_handler(CommandHandler("assign", assign_task))
 application.add_handler(CommandHandler("list", list_tasks))
 application.add_handler(CommandHandler("concern", concern))
 application.add_handler(CommandHandler("done", done_command))
-application.add_handler(CommandHandler("clarify", clarify_command))
-application.add_handler(CommandHandler("mydone", mydone_command))
-application.add_handler(CommandHandler("setmessage", set_message))
-application.add_handler(CommandHandler("viewmessages", view_messages))
 application.add_handler(CallbackQueryHandler(button_callback))
-application.add_handler(MessageHandler((filters.PHOTO | filters.VOICE) & filters.User(user_id=int(YOUR_ID)), handle_boss_media))
+application.add_handler(MessageHandler((filters.PHOTO | filters.VOICE) & filters.User(user_id=int(YOUR_ID)) & filters.REPLY, handle_boss_media))
 application.add_handler(MessageHandler(filters.TEXT | filters.Document.ALL | filters.VOICE & ~filters.User(user_id=int(YOUR_ID)) & filters.REPLY, handle_employee_response))
-application.add_handler(MessageHandler((filters.VOICE | filters.Document.ALL | filters.PHOTO) & ~filters.User(user_id=int(YOUR_ID)), handle_concern_response))
+application.add_handler(MessageHandler((filters.VOICE | filters.Document.ALL | filters.PHOTO) & ~filters.User(user_id=int(YOUR_ID)) & filters.REPLY, handle_concern_response))
 
 # Application setup
-async def send_daily_reminder(context: ContextTypes.DEFAULT_TYPE):
-    current_time = datetime.now().time()
-    
-    # Determine which message to send based on time
-    if current_time.hour == 9:  # 9 AM
-        message = DAILY_MESSAGES[0]
-    elif current_time.hour == 13:  # 1 PM
-        message = DAILY_MESSAGES[1]
-    elif current_time.hour == 18:  # 6 PM
-        message = DAILY_MESSAGES[2]
-    else:
-        return
-    
-    # Send message to all employees
-    for employee_name, chat_id in EMPLOYEES.items():
-        try:
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=message
-            )
-            logger.info(f"Sent daily reminder to {employee_name}")
-        except Exception as e:
-            logger.error(f"Failed to send daily reminder to {employee_name}: {e}")
-
-async def setup_daily_reminders(application: Application):
-    # Schedule reminders at 10 AM and 4 PM
-    for hour in [10, 16]:
-        job = application.job_queue.run_daily(
-            send_daily_reminder,
-            time=time(hour=hour, minute=0),
-            name=f"daily_reminder_{hour}"
-        )
-        logger.info(f"Scheduled daily reminder for {hour}:00")
-
-async def main():
-    # Start self-ping in background
-    asyncio.create_task(ping())
-    
-    # Set up daily reminders
-    await setup_daily_reminders(application)
-    
-    # Start the bot
+async def run_application():
     await application.initialize()
     await application.start()
-    await application.run_polling()
+    await asyncio.Event().wait()
+
+async def setup_webhook():
+    url = f"https://trichygold-bot.onrender.com/webhook/{BOT_TOKEN}"
+    response = await application.bot.set_webhook(url=url)
+    logger.info(f"Webhook set: {response}")
+
+async def main():
+    asyncio.create_task(run_application())
+    await setup_webhook()
+    config = uvicorn.Config(app=app, host="0.0.0.0", port=8080, loop="asyncio")
+    server = uvicorn.Server(config)
+    await server.serve()
 
 if __name__ == '__main__':
     asyncio.run(main())
