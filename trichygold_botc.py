@@ -8,6 +8,7 @@ from typing import Dict, List, Optional
 from quart import Quart, request
 import uvicorn
 import os
+import aiohttp
 
 # Set up logging
 logging.basicConfig(
@@ -506,6 +507,27 @@ def setup_scheduled_messages(application: Application):
     for t in times.values():
         job_queue.run_daily(send_fixed_message, time=t, timezone=pytz.timezone('Asia/Dubai'))
 
+async def ping():
+    """Self-ping to keep the service alive"""
+    try:
+        # Get the service URL from environment or use a default
+        service_url = os.getenv('SERVICE_URL', 'https://trichygold-bot-db.onrender.com')
+        ping_url = f"{service_url}/ping"
+        
+        async with aiohttp.ClientSession() as session:
+            while True:
+                try:
+                    async with session.get(ping_url) as response:
+                        if response.status != 200:
+                            logger.warning(f"Ping failed with status {response.status}")
+                    await asyncio.sleep(60)  # Wait for 1 minute before next ping
+                except Exception as e:
+                    logger.error(f"Error in ping: {e}")
+                    await asyncio.sleep(60)  # Still wait even if there's an error
+
+    except Exception as e:
+        logger.error(f"Fatal error in ping: {e}")
+
 # Register handlers
 def register_handlers(application: Application):
     """Register all command and message handlers"""
@@ -555,17 +577,31 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
 
 # Main function
 async def main():
-    """Start the bot"""
-    # Register handlers
-    register_handlers(application)
-    
-    # Setup scheduled messages
-    setup_scheduled_messages(application)
-    
-    # Start the bot
-    await application.initialize()
-    await application.start()
-    await application.run_polling()
+    try:
+        # Set up the Quart app
+        app.config['PREFERRED_URL_SCHEME'] = 'https'
+        
+        # Initialize the bot application
+        await application.initialize()
+        await application.start()
+        await application.updater.start_polling()
+
+        # Set up daily reminders
+        await setup_scheduled_messages(application)
+        
+        # Start ping in background to handle uptime monitoring
+        ping_task = asyncio.create_task(ping())
+        
+        # Start the Quart app
+        port = int(os.getenv('PORT', 8080))
+        await app.run_task(host='0.0.0.0', port=port)
+        
+    except Exception as e:
+        logger.error(f"Error in main: {str(e)}")
+        if 'ping_task' in locals():
+            ping_task.cancel()
+        await application.stop()
+        raise e
 
 if __name__ == '__main__':
     asyncio.run(main())
