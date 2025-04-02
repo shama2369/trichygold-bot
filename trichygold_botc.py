@@ -441,178 +441,184 @@ async def notify_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ An error occurred while sending notification.")
 
 async def handle_media_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle media messages for clarifications, inquiries, and broadcasts"""
+    """Handle media messages for clarifications, inquiries, and broadcasts."""
     try:
         chat_id = str(update.message.chat_id)
+        user_state = context.user_data.get('state', '')
+        task_id = context.user_data.get('task_id')
         
-        if 'clarifying_task' in context.user_data:
-            task_id = context.user_data['clarifying_task']
-            if TASKS[task_id].get('status') == 'completed':
-                await update.message.reply_text("❌ This task is already completed. Cannot add clarification.")
-                del context.user_data['clarifying_task']
-                return
-                
-            # Handle different types of media
-            message_text = update.message.text if update.message.text else None
-            voice = update.message.voice.file_id if update.message.voice else None
-            document = update.message.document.file_id if update.message.document else None
-            photo = update.message.photo[-1].file_id if update.message.photo else None
-            
-            # Store the clarification
-            clarification = {
-                'type': 'text' if message_text else 'voice' if voice else 'document' if document else 'photo',
-                'content': message_text or voice or document or photo,
-                'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            }
-            
-            TASKS[task_id].setdefault('clarifications', []).append(clarification)
-            
-            # Send clarification to assigned employees
-            success_count = 0
-            failed_sends = []
-            
-            for employee_name in TASKS[task_id]['employees']:
-                if employee_name in EMPLOYEES:
-                    emp_chat_id = EMPLOYEES[employee_name]
-                    try:
-                        # Send header message
-                        await context.bot.send_message(
-                            chat_id=emp_chat_id,
-                            text=f"📢 New clarification for Task #{task_id}:\n{TASKS[task_id]['task']}"
-                        )
-                        
-                        # Send the actual content
-                        if message_text:
-                            await context.bot.send_message(chat_id=emp_chat_id, text=message_text)
-                        elif voice:
-                            await context.bot.send_voice(chat_id=emp_chat_id, voice=voice)
-                        elif document:
-                            await context.bot.send_document(chat_id=emp_chat_id, document=document)
-                        elif photo:
-                            await context.bot.send_photo(chat_id=emp_chat_id, photo=photo)
-                            
-                        success_count += 1
-                    except Exception as e:
-                        logger.error(f"Failed to send clarification to {employee_name}: {e}")
-                        failed_sends.append(employee_name)
-            
-            # Clear context
-            del context.user_data['clarifying_task']
-            
-            # Send status to admin
-            if failed_sends:
-                await update.message.reply_text(
-                    f"✅ Clarification sent to {success_count} employees\n"
-                    f"❌ Failed to send to: {', '.join(failed_sends)}"
-                )
-            else:
-                await update.message.reply_text(f"✅ Clarification sent to all {success_count} employees!")
-                
-        elif 'broadcasting' in context.user_data:
+        if not user_state:
+            await update.message.reply_text("❌ Please use a command first.")
+            return
+
+        if user_state == 'awaiting_clarification':
+            # Handle clarification from admin
             if chat_id != YOUR_ID:
-                await update.message.reply_text("❌ Only admin can broadcast messages.")
-                del context.user_data['broadcasting']
+                await update.message.reply_text("❌ Only admin can send clarifications.")
                 return
                 
-            message_text = update.message.text if update.message.text else None
-            voice = update.message.voice.file_id if update.message.voice else None
-            document = update.message.document.file_id if update.message.document else None
-            photo = update.message.photo[-1].file_id if update.message.photo else None
-            
-            success_count = 0
-            failed_sends = []
-            
-            for employee_name, emp_chat_id in EMPLOYEES.items():
-                try:
-                    # Send header message
-                    await context.bot.send_message(
-                        chat_id=emp_chat_id,
-                        text="📢 Broadcast Message from Admin:"
-                    )
-                    
-                    # Send the actual content
-                    if message_text:
-                        await context.bot.send_message(chat_id=emp_chat_id, text=message_text)
-                    elif voice:
-                        await context.bot.send_voice(chat_id=emp_chat_id, voice=voice)
-                    elif document:
-                        await context.bot.send_document(chat_id=emp_chat_id, document=document)
-                    elif photo:
-                        await context.bot.send_photo(chat_id=emp_chat_id, photo=photo)
-                        
-                    success_count += 1
-                except Exception as e:
-                    logger.error(f"Failed to send broadcast to {employee_name}: {e}")
-                    failed_sends.append(employee_name)
-            
-            # Clear context
-            del context.user_data['broadcasting']
-            
-            # Send status to admin
-            if failed_sends:
-                await update.message.reply_text(
-                    f"📢 Broadcast sent to {success_count} employees\n"
-                    f"❌ Failed to send to: {', '.join(failed_sends)}"
-                )
-            else:
-                await update.message.reply_text(f"✅ Broadcast sent successfully to all {success_count} employees!")
+            if not task_id:
+                await update.message.reply_text("❌ No task selected. Please use /clarify <task_id> first.")
+                return
                 
-        elif 'inquiring_task' in context.user_data:
-            inquiry_data = context.user_data['inquiring_task']
-            task_id = inquiry_data['task_id']
-            employee_name = inquiry_data['employee_name']
-            task = TASKS[task_id]
-            
-            # Handle different types of media
-            message_text = update.message.text if update.message.text else None
-            voice = update.message.voice.file_id if update.message.voice else None
-            document = update.message.document.file_id if update.message.document else None
-            photo = update.message.photo[-1].file_id if update.message.photo else None
-            
-            # Store inquiry in task history
-            inquiry = {
-                'type': 'text' if message_text else 'voice' if voice else 'document' if document else 'photo',
-                'content': message_text or voice or document or photo,
-                'employee': employee_name,
-                'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            }
-            
-            task.setdefault('inquiries', []).append(inquiry)
-            
-            # Send to admin
+            # Get task details
+            task = TASKS.get(task_id)
+            if not task:
+                await update.message.reply_text("❌ Task not found.")
+                context.user_data.clear()
+                return
+                
+            if task['status'] == 'completed':
+                await update.message.reply_text("❌ Cannot clarify a completed task.")
+                context.user_data.clear()
+                return
+                
+            # Forward media to employee
+            employee_id = task['employee_id']
             try:
-                # Send header message
-                await context.bot.send_message(
-                    chat_id=YOUR_ID,
-                    text=f"❓ New inquiry for Task #{task_id}\n"
-                         f"From: {employee_name}\n"
-                         f"Task: {task['task']}\n\n"
-                         f"Question:"
-                )
+                # Handle different types of media
+                if update.message.text:
+                    await context.bot.send_message(
+                        chat_id=employee_id,
+                        text=f"📝 Clarification for Task #{task_id}:\n{update.message.text}"
+                    )
+                elif update.message.voice:
+                    await context.bot.send_voice(
+                        chat_id=employee_id,
+                        voice=update.message.voice.file_id,
+                        caption=f"🎤 Voice clarification for Task #{task_id}"
+                    )
+                elif update.message.document:
+                    await context.bot.send_document(
+                        chat_id=employee_id,
+                        document=update.message.document.file_id,
+                        caption=f"📎 Document clarification for Task #{task_id}"
+                    )
+                elif update.message.photo:
+                    await context.bot.send_photo(
+                        chat_id=employee_id,
+                        photo=update.message.photo[-1].file_id,
+                        caption=f"🖼 Photo clarification for Task #{task_id}"
+                    )
                 
-                # Send the actual content
-                if message_text:
-                    await context.bot.send_message(chat_id=YOUR_ID, text=message_text)
-                elif voice:
-                    await context.bot.send_voice(chat_id=YOUR_ID, voice=voice)
-                elif document:
-                    await context.bot.send_document(chat_id=YOUR_ID, document=document)
-                elif photo:
-                    await context.bot.send_photo(chat_id=YOUR_ID, photo=photo)
-                    
-                # Send confirmation to employee
-                await update.message.reply_text("✅ Your question has been sent to the admin.")
+                await update.message.reply_text("✅ Clarification sent successfully.")
                 
             except Exception as e:
-                logger.error(f"Failed to send inquiry to admin: {e}")
-                await update.message.reply_text("❌ Failed to send your question. Please try again later.")
+                logger.error(f"Error sending clarification: {e}")
+                await update.message.reply_text("❌ Failed to send clarification.")
                 
-            # Clear context
-            del context.user_data['inquiring_task']
+            context.user_data.clear()
+
+        elif user_state == 'awaiting_inquiry':
+            # Handle inquiry from employee
+            if chat_id == YOUR_ID:
+                await update.message.reply_text("❌ Admin cannot send inquiries.")
+                return
+                
+            if not task_id:
+                await update.message.reply_text("❌ No task selected. Please use /inquire <task_id> first.")
+                return
+                
+            # Get task details
+            task = TASKS.get(task_id)
+            if not task:
+                await update.message.reply_text("❌ Task not found.")
+                context.user_data.clear()
+                return
+                
+            if task['status'] == 'completed':
+                await update.message.reply_text("❌ Cannot inquire about a completed task.")
+                context.user_data.clear()
+                return
+                
+            if task['employee_id'] != chat_id:
+                await update.message.reply_text("❌ This task is not assigned to you.")
+                context.user_data.clear()
+                return
             
+            try:
+                # Forward inquiry to admin
+                if update.message.text:
+                    await context.bot.send_message(
+                        chat_id=YOUR_ID,
+                        text=f"❓ Inquiry for Task #{task_id}:\n{update.message.text}"
+                    )
+                elif update.message.voice:
+                    await context.bot.send_voice(
+                        chat_id=YOUR_ID,
+                        voice=update.message.voice.file_id,
+                        caption=f"🎤 Voice inquiry for Task #{task_id}"
+                    )
+                elif update.message.document:
+                    await context.bot.send_document(
+                        chat_id=YOUR_ID,
+                        document=update.message.document.file_id,
+                        caption=f"📎 Document inquiry for Task #{task_id}"
+                    )
+                elif update.message.photo:
+                    await context.bot.send_photo(
+                        chat_id=YOUR_ID,
+                        photo=update.message.photo[-1].file_id,
+                        caption=f"🖼 Photo inquiry for Task #{task_id}"
+                    )
+                
+                await update.message.reply_text("✅ Inquiry sent to admin.")
+                
+            except Exception as e:
+                logger.error(f"Error sending inquiry: {e}")
+                await update.message.reply_text("❌ Failed to send inquiry.")
+                
+            context.user_data.clear()
+
+        elif user_state == 'awaiting_broadcast':
+            # Handle broadcast from admin
+            if chat_id != YOUR_ID:
+                await update.message.reply_text("❌ Only admin can broadcast messages.")
+                return
+            
+            success_count = 0
+            fail_count = 0
+            
+            for employee_id in EMPLOYEES.keys():
+                try:
+                    if update.message.text:
+                        await context.bot.send_message(
+                            chat_id=employee_id,
+                            text=f"📢 Broadcast:\n{update.message.text}"
+                        )
+                    elif update.message.voice:
+                        await context.bot.send_voice(
+                            chat_id=employee_id,
+                            voice=update.message.voice.file_id,
+                            caption="🎤 Voice broadcast"
+                        )
+                    elif update.message.document:
+                        await context.bot.send_document(
+                            chat_id=employee_id,
+                            document=update.message.document.file_id,
+                            caption="📎 Document broadcast"
+                        )
+                    elif update.message.photo:
+                        await context.bot.send_photo(
+                            chat_id=employee_id,
+                            photo=update.message.photo[-1].file_id,
+                            caption="🖼 Photo broadcast"
+                        )
+                    success_count += 1
+                except Exception as e:
+                    logger.error(f"Error broadcasting to {employee_id}: {e}")
+                    fail_count += 1
+            
+            status = f"✅ Broadcast sent to {success_count} employees"
+            if fail_count > 0:
+                status += f"\n❌ Failed to send to {fail_count} employees"
+            await update.message.reply_text(status)
+            context.user_data.clear()
+
     except Exception as e:
         logger.error(f"Error in handle_media_message: {e}")
         await update.message.reply_text("❌ An error occurred while processing your message.")
+        context.user_data.clear()
 
 async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle button callbacks"""
