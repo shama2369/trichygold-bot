@@ -505,30 +505,6 @@ async def send_task_reminder(context: ContextTypes.DEFAULT_TYPE):
         else:
             job.schedule_removal()
 
-# Setup scheduled messages
-def setup_scheduled_messages(application: Application):
-    """Set up scheduled messages"""
-    job_queue = application.job_queue
-    
-    # Convert times to datetime.time objects with timezone
-    dubai_tz = pytz.timezone('Asia/Dubai')
-    times = {
-        "morning": time(9, 0),    # 9:00 AM
-        "afternoon": time(13, 0),  # 1:00 PM
-        "evening": time(18, 0),    # 6:00 PM
-        "night": time(21, 0)       # 9:00 PM
-    }
-    
-    # Schedule messages
-    for name, t in times.items():
-        job_queue.run_daily(
-            send_fixed_message,
-            time=t,
-            chat_id=None,  # Will be set in the callback
-            name=name,
-            data={'time_of_day': name}
-        )
-
 async def ping():
     """Self-ping to keep the service alive"""
     try:
@@ -550,7 +526,6 @@ async def ping():
     except Exception as e:
         logger.error(f"Fatal error in ping: {e}")
 
-# Register handlers
 def register_handlers(application: Application):
     """Register all command and message handlers"""
     application.add_handler(CommandHandler("start", start))
@@ -597,9 +572,11 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
         message_id = int(data.split('_')[1])
         await handle_acknowledgment_callback(update, context, message_id)
 
-# Main function
 async def main():
     try:
+        # Register handlers
+        register_handlers(application)
+        
         # Set up the Quart app
         app.config['PREFERRED_URL_SCHEME'] = 'https'
         
@@ -608,7 +585,7 @@ async def main():
         await application.start()
         await application.updater.start_polling()
 
-        # Set up daily reminders
+        # Setup scheduled messages
         await setup_scheduled_messages(application)
         
         # Start ping in background to handle uptime monitoring
@@ -624,6 +601,29 @@ async def main():
             ping_task.cancel()
         await application.stop()
         raise e
+
+async def setup_scheduled_messages(application: Application):
+    """Set up scheduled messages"""
+    job_queue = application.job_queue
+    
+    # Convert times to datetime.time objects with timezone
+    dubai_tz = pytz.timezone('Asia/Dubai')
+    times = {
+        "morning": time(9, 0),    # 9:00 AM
+        "afternoon": time(13, 0),  # 1:00 PM
+        "evening": time(18, 0),    # 6:00 PM
+        "night": time(21, 0)       # 9:00 PM
+    }
+    
+    # Schedule messages
+    for name, t in times.items():
+        job_queue.run_daily(
+            send_fixed_message,
+            time=t,
+            chat_id=None,  # Will be set in the callback
+            name=name,
+            data={'time_of_day': name}
+        )
 
 if __name__ == '__main__':
     asyncio.run(main())
