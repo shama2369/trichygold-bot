@@ -43,13 +43,14 @@ CUSTOM_MESSAGES: Dict[int, dict] = {}  # message_id: message_info
 CONTEXT = {}
 CONCERN_CONTEXT = {}
 TASK_STATUS = {}
+ACTIVE_EMPLOYEES = {}
 
 # Fixed messages for different times
 FIXED_MESSAGES = {
-    "10:00": "🌅 Good Morning TrichyGold Team!\n\nToday's Focus:\n• Check daily targets\n• Review inventory\n• Plan customer interactions",
-    "14:00": "🌞 Afternoon Update Time!\n\nMid-day Checklist:\n• Sales progress\n• Customer feedback\n• Stock updates",
-    "18:00": "🌆 Evening Check-in!\n\nEnd-day Tasks:\n• Complete pending work\n• Update records\n• Prepare for tomorrow",
-    "21:00": "🌙 Day End Summary!\n\nBefore Closing:\n• Final counts\n• Security check\n• Tomorrow's preparation"
+    "morning": "🌅 Good Morning TrichyGold Team!\n\nToday's Focus:\n• Check daily targets\n• Review inventory\n• Plan customer interactions",
+    "afternoon": "🌞 Afternoon Update Time!\n\nMid-day Checklist:\n• Sales progress\n• Customer feedback\n• Stock updates",
+    "evening": "🌆 Evening Check-in!\n\nEnd-day Tasks:\n• Complete pending work\n• Update records\n• Prepare for tomorrow",
+    "night": "🌙 Day End Summary!\n\nBefore Closing:\n• Final counts\n• Security check\n• Tomorrow's preparation"
 }
 
 # Task counter for unique IDs
@@ -451,21 +452,33 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 # Helper function for scheduled messages
-async def send_fixed_message(context: ContextTypes.DEFAULT_TYPE):
-    """Send fixed messages at scheduled times"""
-    now = datetime.now(pytz.timezone('Asia/Dubai'))
-    current_time = now.strftime("%H:%M")
-    
-    if current_time in FIXED_MESSAGES:
-        message = FIXED_MESSAGES[current_time]
-        for employee_id in EMPLOYEES.values():
+async def send_fixed_message(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Send fixed message to all employees"""
+    try:
+        time_of_day = context.job.data['time_of_day']
+        message = FIXED_MESSAGES[time_of_day]
+        
+        # Send to all employees
+        for employee_name, chat_id in EMPLOYEES.items():
             try:
+                # Check if chat exists
+                try:
+                    await context.bot.get_chat(chat_id)
+                except Exception:
+                    logger.warning(f"Chat {chat_id} for {employee_name} not found. Removing from active employees.")
+                    del ACTIVE_EMPLOYEES[employee_name]
+                    continue
+
                 await context.bot.send_message(
-                    chat_id=employee_id,
+                    chat_id=chat_id,
                     text=message
                 )
+                logger.info(f"Sent {time_of_day} message to {employee_name}")
             except Exception as e:
-                logger.error(f"Failed to send fixed message to {employee_id}: {e}")
+                logger.error(f"Failed to send {time_of_day} message to {employee_name}: {e}")
+                
+    except Exception as e:
+        logger.error(f"Error in send_fixed_message: {e}")
 
 async def send_task_reminder(context: ContextTypes.DEFAULT_TYPE):
     """Send reminder for specific task"""
@@ -494,19 +507,27 @@ async def send_task_reminder(context: ContextTypes.DEFAULT_TYPE):
 
 # Setup scheduled messages
 def setup_scheduled_messages(application: Application):
-    """Setup fixed message schedule"""
+    """Set up scheduled messages"""
     job_queue = application.job_queue
     
-    # Convert times to seconds since midnight
+    # Convert times to datetime.time objects with timezone
+    dubai_tz = pytz.timezone('Asia/Dubai')
     times = {
-        "10:00": time(10, 0),  # 10 AM
-        "14:00": time(14, 0),  # 2 PM
-        "18:00": time(18, 0),  # 6 PM
-        "21:00": time(21, 0)   # 9 PM
+        "morning": time(9, 0),    # 9:00 AM
+        "afternoon": time(13, 0),  # 1:00 PM
+        "evening": time(18, 0),    # 6:00 PM
+        "night": time(21, 0)       # 9:00 PM
     }
     
-    for t in times.values():
-        job_queue.run_daily(send_fixed_message, time=t, timezone=pytz.timezone('Asia/Dubai'))
+    # Schedule messages
+    for name, t in times.items():
+        job_queue.run_daily(
+            send_fixed_message,
+            time=t,
+            chat_id=None,  # Will be set in the callback
+            name=name,
+            data={'time_of_day': name}
+        )
 
 async def ping():
     """Self-ping to keep the service alive"""
