@@ -539,7 +539,7 @@ def register_handlers(application: Application):
     
     # Add message handlers for media and callbacks here
     application.add_handler(MessageHandler(
-        filters.PHOTO | filters.VOICE | filters.DOCUMENT | filters.TEXT,
+        filters.PHOTO | filters.VOICE | filters.Document.ALL | filters.TEXT,
         handle_media_message
     ))
     application.add_handler(CallbackQueryHandler(handle_button_callback))
@@ -574,17 +574,17 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
 
 async def main():
     try:
-        # Register handlers
-        register_handlers(application)
-        
         # Set up the Quart app
         app.config['PREFERRED_URL_SCHEME'] = 'https'
         
-        # Initialize the bot application
+        # Initialize and start the bot application
+        register_handlers(application)
         await application.initialize()
         await application.start()
-        await application.updater.start_polling()
-
+        
+        # Start polling in background
+        polling_task = asyncio.create_task(application.updater.start_polling())
+        
         # Setup scheduled messages
         await setup_scheduled_messages(application)
         
@@ -597,9 +597,15 @@ async def main():
         
     except Exception as e:
         logger.error(f"Error in main: {str(e)}")
-        if 'ping_task' in locals():
-            ping_task.cancel()
-        await application.stop()
+        try:
+            if 'polling_task' in locals():
+                polling_task.cancel()
+            if 'ping_task' in locals():
+                ping_task.cancel()
+            if application.running:
+                await application.stop()
+        except Exception as stop_error:
+            logger.error(f"Error stopping application: {stop_error}")
         raise e
 
 async def setup_scheduled_messages(application: Application):
