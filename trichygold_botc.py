@@ -7,6 +7,7 @@ import logging
 from typing import Dict, List, Optional
 from quart import Quart, request
 import uvicorn
+import os
 
 # Set up logging
 logging.basicConfig(
@@ -15,9 +16,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Get environment variables
+BOT_TOKEN = os.getenv('BOT_TOKEN', 'YOUR_BOT_TOKEN')
+YOUR_ID = os.getenv('ADMIN_ID', 'YOUR_ADMIN_ID')
+
 # Bot Configuration
-BOT_TOKEN = '7358468280:AAGktrhJSHmhHWlW8KmME_ST5P6VQkoj_Vo'
-YOUR_ID = '1341853859'
 EMPLOYEES = {
     'shameem': '1341853859',
     'rehan': '1475715464',
