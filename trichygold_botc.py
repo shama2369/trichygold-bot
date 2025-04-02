@@ -24,17 +24,7 @@ YOUR_ID = os.getenv('ADMIN_ID', 'YOUR_ADMIN_ID')
 EMPLOYEES = {
     'shameem': '1341853859',
     'rehan': '1475715464',
-    'employee3': 'CHAT_ID_3',
-    'employee4': 'CHAT_ID_4',
-    'employee5': 'CHAT_ID_5',
-    'employee6': 'CHAT_ID_6',
-    'employee7': 'CHAT_ID_7',
-    'employee8': 'CHAT_ID_8',
-    'employee9': 'CHAT_ID_9',
-    'employee10': 'CHAT_ID_10',
-    'employee11': 'CHAT_ID_11',
-    'employee12': 'CHAT_ID_12',
-    'employee13': 'CHAT_ID_13',
+    
 }
 
 # Initialize Bot
@@ -168,7 +158,7 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
             'task': task,
             'employees': employees,
             'status': 'active',
-            'created_at': datetime.now(),
+            'created_at': datetime.now(pytz.timezone('Asia/Dubai')),
             'reminder_interval': minutes,
             'inquiries': [],
             'clarifications': []
@@ -185,9 +175,13 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
+            # Format time in Dubai timezone
+            created_time = TASKS[task_id]['created_at'].strftime('%I:%M %p')
+            
             message = (
                 f"📋 New Task #{task_id}\n\n"
                 f"Task: {task}\n"
+                f"Created: {created_time} (UAE)\n"
                 f"Reminder: Every {minutes} minutes\n\n"
                 f"Use:\n"
                 f"• /inquire {task_id} - Ask questions\n"
@@ -243,7 +237,7 @@ async def done_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"Task #{task_id}:\n"
                     f"• Assigned to: {', '.join(task_info['employees'])}\n"
                     f"• Task: {task_info['task']}\n"
-                    f"• Created: {task_info['created_at'].strftime('%Y-%m-%d %H:%M')}\n"
+                    f"• Created: {task_info['created_at'].strftime('%I:%M %p')} (UAE)\n"
                     f"• Reminder: Every {task_info['reminder_interval']} minutes\n\n"
                 )
         
@@ -263,7 +257,7 @@ async def done_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             # Mark task as completed
             task_info['status'] = 'completed'
-            task_info['completed_at'] = datetime.now()
+            task_info['completed_at'] = datetime.now(pytz.timezone('Asia/Dubai'))
             task_info['completed_by'] = 'admin'
             
             # Notify employees
@@ -272,7 +266,8 @@ async def done_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await context.bot.send_message(
                         chat_id=EMPLOYEES[employee],
                         text=f"✅ Task #{task_id} has been marked as completed by admin.\n"
-                             f"Task: {task_info['task']}"
+                             f"Task: {task_info['task']}\n"
+                             f"Completed at: {task_info['completed_at'].strftime('%I:%M %p')} (UAE)"
                     )
                 except Exception as e:
                     logger.error(f"Failed to notify {employee}: {e}")
@@ -397,7 +392,7 @@ async def taskdone_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Mark task as completed
         task_info['status'] = 'completed'
-        task_info['completed_at'] = datetime.now()
+        task_info['completed_at'] = datetime.now(pytz.timezone('Asia/Dubai'))
         task_info['completed_by'] = employee_name
         
         # Notify admin
@@ -405,7 +400,7 @@ async def taskdone_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             chat_id=YOUR_ID,
             text=f"✅ Task #{task_id} completed by {employee_name}\n"
                  f"Task: {task_info['task']}\n"
-                 f"Completed at: {task_info['completed_at'].strftime('%Y-%m-%d %H:%M')}"
+                 f"Completed at: {task_info['completed_at'].strftime('%I:%M %p')} (UAE)"
         )
         
         await update.message.reply_text(f"✅ Task #{task_id} marked as completed!")
@@ -456,7 +451,7 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Helper function for scheduled messages
 async def send_fixed_message(context: ContextTypes.DEFAULT_TYPE):
     """Send fixed messages at scheduled times"""
-    now = datetime.now(pytz.timezone('Asia/Kolkata'))
+    now = datetime.now(pytz.timezone('Asia/Dubai'))
     current_time = now.strftime("%H:%M")
     
     if current_time in FIXED_MESSAGES:
@@ -509,7 +504,7 @@ def setup_scheduled_messages(application: Application):
     }
     
     for t in times.values():
-        job_queue.run_daily(send_fixed_message, time=t, timezone=pytz.timezone('Asia/Kolkata'))
+        job_queue.run_daily(send_fixed_message, time=t, timezone=pytz.timezone('Asia/Dubai'))
 
 # Register handlers
 def register_handlers(application: Application):
