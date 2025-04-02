@@ -312,7 +312,8 @@ async def clarify_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"You can send:\n"
             f"• Text message\n"
             f"• Voice message\n"
-            f"• Files/Documents"
+            f"• Files/documents\n"
+            f"• Photos"
         )
             
     except Exception as e:
@@ -320,7 +321,7 @@ async def clarify_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ An error occurred while processing your command.")
 
 async def list_employees_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /list_employees command"""
+    """Handle /list_employees command for admin to view and manage employees"""
     try:
         chat_id = str(update.message.chat_id)
         
@@ -329,27 +330,115 @@ async def list_employees_command(update: Update, context: ContextTypes.DEFAULT_T
             return
             
         if not EMPLOYEES:
-            keyboard = [[InlineKeyboardButton("Add Employee ➕", callback_data="add_employee")]]
-            reply_markup = InlineKeyboardMarkup(keyboard)
             await update.message.reply_text(
-                "📋 No employees registered yet.",
-                reply_markup=reply_markup
+                "📋 No employees registered.\n"
+                "To add an employee, use:\n"
+                "/add_employee <name> <telegram_id>"
             )
             return
             
-        message = "👥 Registered Employees:\n\n"
-        for name, emp_chat_id in EMPLOYEES.items():
-            active_status = "✅ Active" if name in ACTIVE_EMPLOYEES else "❌ Inactive"
-            message += f"• {name} - {active_status}\n"
-            
-        keyboard = [[InlineKeyboardButton("Add Employee ➕", callback_data="add_employee")]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
+        # Build employee list with task counts
+        employee_list = []
+        for name, emp_id in EMPLOYEES.items():
+            active_tasks = sum(1 for task in TASKS.values() 
+                             if name in task.get('employees', []) 
+                             and task.get('status') != 'completed')
+            total_tasks = sum(1 for task in TASKS.values() 
+                            if name in task.get('employees', []))
+            employee_list.append(f"👤 {name}\n   📱 ID: {emp_id}\n   📋 Tasks: {active_tasks} active, {total_tasks} total")
         
-        await update.message.reply_text(message, reply_markup=reply_markup)
+        message = "📋 Registered Employees:\n\n" + "\n\n".join(employee_list)
+        message += "\n\nTo add an employee:\n/add_employee <name> <telegram_id>"
+        
+        await update.message.reply_text(message)
         
     except Exception as e:
         logger.error(f"Error in list_employees_command: {e}")
         await update.message.reply_text("❌ An error occurred while listing employees.")
+
+async def notify_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /notify command for admin to send notifications about specific tasks"""
+    try:
+        chat_id = str(update.message.chat_id)
+        
+        if chat_id != YOUR_ID:
+            await update.message.reply_text("❌ Only admin can use this command.")
+            return
+            
+        if not context.args:
+            active_tasks = {task_id: task for task_id, task in TASKS.items() 
+                          if task.get('status') != 'completed'}
+            
+            if not active_tasks:
+                await update.message.reply_text("📋 No active tasks to notify about.")
+                return
+                
+            task_list = []
+            for task_id, task in active_tasks.items():
+                employees = ", ".join(task.get('employees', []))
+                task_list.append(f"Task #{task_id}: {task['task']}\nAssigned to: {employees}")
+            
+            message = (
+                "To send a notification, use:\n"
+                "/notify <task_id> <message>\n\n"
+                "📋 Active Tasks:\n\n" + 
+                "\n\n".join(task_list)
+            )
+            await update.message.reply_text(message)
+            return
+            
+        task_id = context.args[0]
+        if task_id not in TASKS:
+            await update.message.reply_text("❌ Invalid task ID.")
+            return
+            
+        if TASKS[task_id].get('status') == 'completed':
+            await update.message.reply_text("❌ Cannot send notification for completed task.")
+            return
+            
+        if len(context.args) < 2:
+            await update.message.reply_text("❌ Please provide a notification message.")
+            return
+            
+        notification = " ".join(context.args[1:])
+        task = TASKS[task_id]
+        
+        success_count = 0
+        failed_sends = []
+        
+        for employee_name in task.get('employees', []):
+            if employee_name in EMPLOYEES:
+                emp_chat_id = EMPLOYEES[employee_name]
+                try:
+                    await context.bot.send_message(
+                        chat_id=emp_chat_id,
+                        text=f"📢 Notification for Task #{task_id}:\n"
+                             f"Task: {task['task']}\n"
+                             f"Message: {notification}"
+                    )
+                    success_count += 1
+                except Exception as e:
+                    logger.error(f"Failed to send notification to {employee_name}: {e}")
+                    failed_sends.append(employee_name)
+        
+        # Store notification in task history
+        task.setdefault('notifications', []).append({
+            'message': notification,
+            'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        })
+        
+        # Send status to admin
+        if failed_sends:
+            await update.message.reply_text(
+                f"✅ Notification sent to {success_count} employees\n"
+                f"❌ Failed to send to: {', '.join(failed_sends)}"
+            )
+        else:
+            await update.message.reply_text(f"✅ Notification sent to all {success_count} employees!")
+            
+    except Exception as e:
+        logger.error(f"Error in notify_command: {e}")
+        await update.message.reply_text("❌ An error occurred while sending notification.")
 
 async def handle_media_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle media messages for clarifications, inquiries, and broadcasts"""
@@ -358,7 +447,7 @@ async def handle_media_message(update: Update, context: ContextTypes.DEFAULT_TYP
         
         if 'clarifying_task' in context.user_data:
             task_id = context.user_data['clarifying_task']
-            if TASKS[task_id].get('completed', False):
+            if TASKS[task_id].get('status') == 'completed':
                 await update.message.reply_text("❌ This task is already completed. Cannot add clarification.")
                 del context.user_data['clarifying_task']
                 return
@@ -370,21 +459,29 @@ async def handle_media_message(update: Update, context: ContextTypes.DEFAULT_TYP
             photo = update.message.photo[-1].file_id if update.message.photo else None
             
             # Store the clarification
-            TASKS[task_id].setdefault('clarifications', []).append({
+            clarification = {
                 'type': 'text' if message_text else 'voice' if voice else 'document' if document else 'photo',
                 'content': message_text or voice or document or photo,
                 'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            })
+            }
+            
+            TASKS[task_id].setdefault('clarifications', []).append(clarification)
             
             # Send clarification to assigned employees
+            success_count = 0
+            failed_sends = []
+            
             for employee_name in TASKS[task_id]['employees']:
-                if employee_name in ACTIVE_EMPLOYEES:
-                    emp_chat_id = ACTIVE_EMPLOYEES[employee_name]
+                if employee_name in EMPLOYEES:
+                    emp_chat_id = EMPLOYEES[employee_name]
                     try:
+                        # Send header message
                         await context.bot.send_message(
                             chat_id=emp_chat_id,
-                            text=f"📢 New clarification for Task #{task_id}:"
+                            text=f"📢 New clarification for Task #{task_id}:\n{TASKS[task_id]['task']}"
                         )
+                        
+                        # Send the actual content
                         if message_text:
                             await context.bot.send_message(chat_id=emp_chat_id, text=message_text)
                         elif voice:
@@ -393,50 +490,125 @@ async def handle_media_message(update: Update, context: ContextTypes.DEFAULT_TYP
                             await context.bot.send_document(chat_id=emp_chat_id, document=document)
                         elif photo:
                             await context.bot.send_photo(chat_id=emp_chat_id, photo=photo)
+                            
+                        success_count += 1
                     except Exception as e:
                         logger.error(f"Failed to send clarification to {employee_name}: {e}")
+                        failed_sends.append(employee_name)
             
-            await update.message.reply_text("✅ Clarification added and sent to employees.")
+            # Clear context
             del context.user_data['clarifying_task']
             
+            # Send status to admin
+            if failed_sends:
+                await update.message.reply_text(
+                    f"✅ Clarification sent to {success_count} employees\n"
+                    f"❌ Failed to send to: {', '.join(failed_sends)}"
+                )
+            else:
+                await update.message.reply_text(f"✅ Clarification sent to all {success_count} employees!")
+                
         elif 'broadcasting' in context.user_data:
             if chat_id != YOUR_ID:
                 await update.message.reply_text("❌ Only admin can broadcast messages.")
                 del context.user_data['broadcasting']
                 return
                 
+            message_text = update.message.text if update.message.text else None
+            voice = update.message.voice.file_id if update.message.voice else None
+            document = update.message.document.file_id if update.message.document else None
+            photo = update.message.photo[-1].file_id if update.message.photo else None
+            
             success_count = 0
             failed_sends = []
             
-            for employee_name, emp_chat_id in ACTIVE_EMPLOYEES.items():
+            for employee_name, emp_chat_id in EMPLOYEES.items():
                 try:
-                    if update.message.text:
-                        await context.bot.send_message(chat_id=emp_chat_id, text=update.message.text)
-                    elif update.message.voice:
-                        await context.bot.send_voice(chat_id=emp_chat_id, voice=update.message.voice.file_id)
-                    elif update.message.document:
-                        await context.bot.send_document(chat_id=emp_chat_id, document=update.message.document.file_id)
-                    elif update.message.photo:
-                        await context.bot.send_photo(chat_id=emp_chat_id, photo=update.message.photo[-1].file_id)
+                    # Send header message
+                    await context.bot.send_message(
+                        chat_id=emp_chat_id,
+                        text="📢 Broadcast Message from Admin:"
+                    )
+                    
+                    # Send the actual content
+                    if message_text:
+                        await context.bot.send_message(chat_id=emp_chat_id, text=message_text)
+                    elif voice:
+                        await context.bot.send_voice(chat_id=emp_chat_id, voice=voice)
+                    elif document:
+                        await context.bot.send_document(chat_id=emp_chat_id, document=document)
+                    elif photo:
+                        await context.bot.send_photo(chat_id=emp_chat_id, photo=photo)
+                        
                     success_count += 1
                 except Exception as e:
                     logger.error(f"Failed to send broadcast to {employee_name}: {e}")
                     failed_sends.append(employee_name)
             
+            # Clear context
+            del context.user_data['broadcasting']
+            
+            # Send status to admin
             if failed_sends:
                 await update.message.reply_text(
                     f"📢 Broadcast sent to {success_count} employees\n"
-                    f"⚠️ Failed to send to: {', '.join(failed_sends)}"
+                    f"❌ Failed to send to: {', '.join(failed_sends)}"
                 )
             else:
-                await update.message.reply_text(
-                    f"✅ Broadcast sent successfully to all {success_count} employees!"
-                )
-            
-            del context.user_data['broadcasting']
-            
+                await update.message.reply_text(f"✅ Broadcast sent successfully to all {success_count} employees!")
+                
         elif 'inquiring_task' in context.user_data:
-            await handle_inquiry(update, context)
+            inquiry_data = context.user_data['inquiring_task']
+            task_id = inquiry_data['task_id']
+            employee_name = inquiry_data['employee_name']
+            task = TASKS[task_id]
+            
+            # Handle different types of media
+            message_text = update.message.text if update.message.text else None
+            voice = update.message.voice.file_id if update.message.voice else None
+            document = update.message.document.file_id if update.message.document else None
+            photo = update.message.photo[-1].file_id if update.message.photo else None
+            
+            # Store inquiry in task history
+            inquiry = {
+                'type': 'text' if message_text else 'voice' if voice else 'document' if document else 'photo',
+                'content': message_text or voice or document or photo,
+                'employee': employee_name,
+                'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+            
+            task.setdefault('inquiries', []).append(inquiry)
+            
+            # Send to admin
+            try:
+                # Send header message
+                await context.bot.send_message(
+                    chat_id=YOUR_ID,
+                    text=f"❓ New inquiry for Task #{task_id}\n"
+                         f"From: {employee_name}\n"
+                         f"Task: {task['task']}\n\n"
+                         f"Question:"
+                )
+                
+                # Send the actual content
+                if message_text:
+                    await context.bot.send_message(chat_id=YOUR_ID, text=message_text)
+                elif voice:
+                    await context.bot.send_voice(chat_id=YOUR_ID, voice=voice)
+                elif document:
+                    await context.bot.send_document(chat_id=YOUR_ID, document=document)
+                elif photo:
+                    await context.bot.send_photo(chat_id=YOUR_ID, photo=photo)
+                    
+                # Send confirmation to employee
+                await update.message.reply_text("✅ Your question has been sent to the admin.")
+                
+            except Exception as e:
+                logger.error(f"Failed to send inquiry to admin: {e}")
+                await update.message.reply_text("❌ Failed to send your question. Please try again later.")
+                
+            # Clear context
+            del context.user_data['inquiring_task']
             
     except Exception as e:
         logger.error(f"Error in handle_media_message: {e}")
@@ -461,7 +633,7 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
                 f"You can send:\n"
                 f"• Text message\n"
                 f"• Voice message\n"
-                f"• Files/Documents"
+                f"• Files/documents"
             )
         elif data == 'add_employee':
             await query.answer()
@@ -546,22 +718,204 @@ async def notify_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /broadcast command for admin to send custom messages"""
-    chat_id = str(update.message.chat_id)
-    if chat_id != YOUR_ID:
-        await update.message.reply_text("❌ Only admin can use this command!")
-        return
-    
-    # Store context for handling the next message
-    context.user_data['broadcasting'] = True
-    
-    await update.message.reply_text(
-        "📝 Send your broadcast message\n"
-        "All employees will need to acknowledge this message.\n"
-        "You can send:\n"
-        "• Text message\n"
-        "• Voice message\n"
-        "• Files/Photos"
-    )
+    try:
+        chat_id = str(update.message.chat_id)
+        if chat_id != YOUR_ID:
+            await update.message.reply_text("❌ Only admin can use this command!")
+            return
+        
+        # Store context for handling the next message
+        context.user_data['broadcasting'] = True
+        
+        await update.message.reply_text(
+            "📢 Send your broadcast message.\n"
+            "You can send:\n"
+            "• Text message\n"
+            "• Voice message\n"
+            "• Files/Documents\n"
+            "• Photos"
+        )
+        
+    except Exception as e:
+        logger.error(f"Error in broadcast_command: {e}")
+        await update.message.reply_text("❌ An error occurred.")
+
+async def mytasks_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /mytasks command for employees to view their tasks"""
+    try:
+        chat_id = str(update.message.chat_id)
+        employee_name = get_employee_name(chat_id)
+        
+        if not employee_name:
+            await update.message.reply_text("❌ Only registered employees can use this command!")
+            return
+            
+        # Get active tasks for this employee
+        employee_tasks = {
+            tid: task for tid, task in TASKS.items()
+            if employee_name in task['employees'] and task['status'] == 'active'
+        }
+        
+        if not employee_tasks:
+            await update.message.reply_text("📝 You have no active tasks at the moment.")
+            return
+            
+        message = "📋 Your Active Tasks:\n\n"
+        for task_id, task in employee_tasks.items():
+            message += (
+                f"Task #{task_id}:\n"
+                f"• Description: {task['task']}\n"
+                f"• Created: {task['created_at'].strftime('%I:%M %p')} (UAE)\n\n"
+            )
+            # Add action buttons for each task
+            keyboard = [
+                [
+                    InlineKeyboardButton("✅ Mark Done", callback_data=f"taskdone_{task_id}"),
+                    InlineKeyboardButton("❓ Ask Question", callback_data=f"inquire_{task_id}")
+                ]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text(message, reply_markup=reply_markup)
+            message = ""  # Reset for next task
+            
+    except Exception as e:
+        logger.error(f"Error in mytasks_command: {e}")
+        await update.message.reply_text("❌ An error occurred while fetching your tasks.")
+
+async def inquire_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /inquire command for employees to ask questions about tasks"""
+    try:
+        chat_id = str(update.message.chat_id)
+        employee_name = None
+        
+        # Find employee by chat ID
+        for name, emp_id in EMPLOYEES.items():
+            if emp_id == chat_id:
+                employee_name = name
+                break
+                
+        if not employee_name:
+            await update.message.reply_text("❌ You are not registered as an employee.")
+            return
+            
+        # If no task ID provided, show active tasks
+        if not context.args:
+            active_tasks = []
+            for task_id, task in TASKS.items():
+                if (employee_name in task.get('employees', []) and 
+                    task.get('status') != 'completed'):
+                    active_tasks.append(f"Task #{task_id}: {task['task']}")
+            
+            if not active_tasks:
+                await update.message.reply_text("📝 You have no active tasks to inquire about.")
+                return
+                
+            message = (
+                "To ask a question, use:\n"
+                "/inquire <task_id>\n\n"
+                "📋 Your Active Tasks:\n\n" + 
+                "\n\n".join(active_tasks)
+            )
+            await update.message.reply_text(message)
+            return
+            
+        task_id = context.args[0]
+        
+        if task_id not in TASKS:
+            await update.message.reply_text("❌ Invalid task ID.")
+            return
+            
+        task = TASKS[task_id]
+        
+        if employee_name not in task.get('employees', []):
+            await update.message.reply_text("❌ You are not assigned to this task.")
+            return
+            
+        if task.get('status') == 'completed':
+            await update.message.reply_text("❌ Cannot inquire about completed task.")
+            return
+            
+        # Store context for handling the next message
+        context.user_data['inquiring_task'] = {
+            'task_id': task_id,
+            'employee_name': employee_name
+        }
+        
+        await update.message.reply_text(
+            f"📝 Ask your question about Task #{task_id}:\n"
+            f"{task['task']}\n\n"
+            "You can send:\n"
+            "• Text message\n"
+            "• Voice message\n"
+            "• Files/Documents\n"
+            "• Photos"
+        )
+        
+    except Exception as e:
+        logger.error(f"Error in inquire_command: {e}")
+        await update.message.reply_text("❌ An error occurred while processing your command.")
+
+async def handle_inquiry(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle inquiry messages from employees"""
+    try:
+        if 'inquiring_task' not in context.user_data:
+            return
+            
+        inquiry_data = context.user_data['inquiring_task']
+        task_id = inquiry_data['task_id']
+        employee_name = inquiry_data['employee_name']
+        task = TASKS[task_id]
+        
+        # Handle different types of media
+        message_text = update.message.text if update.message.text else None
+        voice = update.message.voice.file_id if update.message.voice else None
+        document = update.message.document.file_id if update.message.document else None
+        photo = update.message.photo[-1].file_id if update.message.photo else None
+        
+        # Store inquiry in task history
+        inquiry = {
+            'type': 'text' if message_text else 'voice' if voice else 'document' if document else 'photo',
+            'content': message_text or voice or document or photo,
+            'employee': employee_name,
+            'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+        
+        task.setdefault('inquiries', []).append(inquiry)
+        
+        # Send to admin
+        try:
+            # Send header message
+            await context.bot.send_message(
+                chat_id=YOUR_ID,
+                text=f"❓ New inquiry for Task #{task_id}\n"
+                     f"From: {employee_name}\n"
+                     f"Task: {task['task']}\n\n"
+                     f"Question:"
+            )
+            
+            # Send the actual content
+            if message_text:
+                await context.bot.send_message(chat_id=YOUR_ID, text=message_text)
+            elif voice:
+                await context.bot.send_voice(chat_id=YOUR_ID, voice=voice)
+            elif document:
+                await context.bot.send_document(chat_id=YOUR_ID, document=document)
+            elif photo:
+                await context.bot.send_photo(chat_id=YOUR_ID, photo=photo)
+                
+            # Send confirmation to employee
+            await update.message.reply_text("✅ Your question has been sent to the admin.")
+            
+        except Exception as e:
+            logger.error(f"Failed to send inquiry to admin: {e}")
+            await update.message.reply_text("❌ Failed to send your question. Please try again later.")
+            
+        # Clear context
+        del context.user_data['inquiring_task']
+        
+    except Exception as e:
+        logger.error(f"Error in handle_inquiry: {e}")
+        await update.message.reply_text("❌ An error occurred while processing your question.")
 
 # Helper function for scheduled messages
 async def send_fixed_message(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -638,8 +992,12 @@ async def ping():
     except Exception as e:
         logger.error(f"Fatal error in ping: {e}")
 
-def register_handlers(application: Application):
-    """Register all command and message handlers"""
+def main() -> None:
+    """Start the bot."""
+    # Create the Application and pass it your bot's token.
+    application = Application.builder().token(BOT_TOKEN).build()
+
+    # Command handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("assign", assign_task))
     application.add_handler(CommandHandler("done", done_command))
@@ -649,72 +1007,19 @@ def register_handlers(application: Application):
     application.add_handler(CommandHandler("notify", notify_command))
     application.add_handler(CommandHandler("broadcast", broadcast_command))
     application.add_handler(CommandHandler("list_employees", list_employees_command))
+    application.add_handler(CommandHandler("mytasks", mytasks_command))
     
-    # Add message handlers for media and callbacks here
+    # Media message handler for clarifications, inquiries, and broadcasts
     application.add_handler(MessageHandler(
-        filters.PHOTO | filters.VOICE | filters.Document.ALL | filters.TEXT,
+        filters.TEXT | filters.VOICE | filters.Document.ALL | filters.PHOTO,
         handle_media_message
     ))
+    
+    # Callback query handler for buttons
     application.add_handler(CallbackQueryHandler(handle_button_callback))
 
-async def main():
-    try:
-        # Set up the Quart app
-        app.config['PREFERRED_URL_SCHEME'] = 'https'
-        
-        # Initialize and start the bot application
-        register_handlers(application)
-        await application.initialize()
-        await application.start()
-        
-        # Start polling in background
-        polling_task = asyncio.create_task(application.updater.start_polling())
-        
-        # Setup scheduled messages
-        await setup_scheduled_messages(application)
-        
-        # Start ping in background to handle uptime monitoring
-        ping_task = asyncio.create_task(ping())
-        
-        # Start the Quart app
-        port = int(os.getenv('PORT', 8080))
-        await app.run_task(host='0.0.0.0', port=port)
-        
-    except Exception as e:
-        logger.error(f"Error in main: {str(e)}")
-        try:
-            if 'polling_task' in locals():
-                polling_task.cancel()
-            if 'ping_task' in locals():
-                ping_task.cancel()
-            if application.running:
-                await application.stop()
-        except Exception as stop_error:
-            logger.error(f"Error stopping application: {stop_error}")
-        raise e
-
-async def setup_scheduled_messages(application: Application):
-    """Set up scheduled messages"""
-    job_queue = application.job_queue
-    
-    # Convert times to datetime.time objects with timezone
-    dubai_tz = pytz.timezone('Asia/Dubai')
-    times = {
-        "morning": time(9, 0),    # 9:00 AM
-        "afternoon": time(13, 0),  # 1:00 PM
-        "evening": time(18, 0),    # 6:00 PM
-        "night": time(21, 0)       # 9:00 PM
-    }
-    
-    # Schedule messages
-    for name, t in times.items():
-        job_queue.run_daily(
-            send_fixed_message,
-            time=t,
-            chat_id=None,  # Will be set in the callback
-            name=name,
-            data={'time_of_day': name}
-        )
+    # Start the Bot
+    application.run_polling()
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    main()
