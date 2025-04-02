@@ -3,3 +3,5 @@ python-telegram-bot[job-queue]
 quart
 httpx
 uvicorn
+pytz
+aiohttp
