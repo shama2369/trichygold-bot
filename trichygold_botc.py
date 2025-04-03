@@ -998,34 +998,64 @@ async def ping():
     except Exception as e:
         logger.error(f"Fatal error in ping: {e}")
 
+@app.route('/')
+async def health_check():
+    return "Bot is running", 200
+
+@app.route('/webhook', methods=['POST'])
+async def webhook():
+    data = await request.get_json()
+    update = Update.de_json(data, application.bot)
+    if update:
+        await application.process_update(update)
+    return "OK", 200
+
 def main() -> None:
     """Start the bot."""
-    # Create the Application and pass it your bot's token.
-    application = Application.builder().token(BOT_TOKEN).build()
+    try:
+        # Create the Application and pass it your bot's token.
+        application = Application.builder().token(BOT_TOKEN).build()
 
-    # Command handlers
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("assign", assign_task))
-    application.add_handler(CommandHandler("done", done_command))
-    application.add_handler(CommandHandler("clarify", clarify_command))
-    application.add_handler(CommandHandler("inquire", inquire_command))
-    application.add_handler(CommandHandler("taskdone", taskdone_command))
-    application.add_handler(CommandHandler("notify", notify_command))
-    application.add_handler(CommandHandler("broadcast", broadcast_command))
-    application.add_handler(CommandHandler("list_employees", list_employees_command))
-    application.add_handler(CommandHandler("mytasks", mytasks_command))
-    
-    # Media message handler for clarifications, inquiries, and broadcasts
-    application.add_handler(MessageHandler(
-        filters.TEXT | filters.VOICE | filters.Document.ALL | filters.PHOTO,
-        handle_media_message
-    ))
-    
-    # Callback query handler for buttons
-    application.add_handler(CallbackQueryHandler(handle_button_callback))
+        # Command handlers
+        application.add_handler(CommandHandler("start", start))
+        application.add_handler(CommandHandler("assign", assign_task))
+        application.add_handler(CommandHandler("done", done_command))
+        application.add_handler(CommandHandler("clarify", clarify_command))
+        application.add_handler(CommandHandler("inquire", inquire_command))
+        application.add_handler(CommandHandler("taskdone", taskdone_command))
+        application.add_handler(CommandHandler("notify", notify_command))
+        application.add_handler(CommandHandler("broadcast", broadcast_command))
+        application.add_handler(CommandHandler("list_employees", list_employees_command))
+        application.add_handler(CommandHandler("mytasks", mytasks_command))
+        
+        # Media message handler for clarifications, inquiries, and broadcasts
+        application.add_handler(MessageHandler(
+            filters.TEXT | filters.VOICE | filters.Document.ALL | filters.PHOTO,
+            handle_media_message
+        ))
+        
+        # Callback query handler for buttons
+        application.add_handler(CallbackQueryHandler(handle_button_callback))
 
-    # Start the Bot
-    application.run_polling()
+        # Add error handler
+        application.add_error_handler(error_handler)
+
+        # Configure webhook
+        webhook_url = f"https://{os.getenv('RENDER_SERVICE_URL', 'localhost')}/webhook"
+        await application.bot.set_webhook(webhook_url)
+        
+        # Start the webhook server
+        config = uvicorn.Config(
+            app=app,
+            host="0.0.0.0",
+            port=8080,
+            loop="asyncio"
+        )
+        server = uvicorn.Server(config)
+        await server.serve()
+    except Exception as e:
+        logger.error(f"Fatal error in main: {e}")
+        raise
 
 if __name__ == '__main__':
-    main()
+    asyncio.run(main())
