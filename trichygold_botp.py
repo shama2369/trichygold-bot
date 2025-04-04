@@ -71,7 +71,7 @@ def get_employee_name(chat_id: str) -> Optional[str]:
     return None
 
 def format_task_message(task: str, minutes: int) -> str:
-    return f"📋 New Task Assigned!\n\nTask: {task}\nReminder: Every {minutes} minutes\n\nPlease reply to this message with:\n• Text updates\n• Voice messages\n• Files/documents\n• 'done' when completed."
+    return f"📋 New Task Assigned!\n\nTask: {task}\nReminder: Every {minutes} minutes\n\nPlease reply to this message with:\n• Text updates\n• Voice messages\n• Files/documents\n• 'done' to mark complete"
 
 def create_task_keyboard() -> InlineKeyboardMarkup:
     keyboard = [
@@ -227,7 +227,7 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         logger.error(f"Error in assign_task: {e}")
         await update.message.reply_text("❌ Failed to assign task. Please try again.")
 
-# Other command handlers (done_command, clarify_command, list_employees_command, notify_command, handle_media_message, handle_button_callback, taskdone_command, broadcast_command, mytasks_command, inquire_command, handle_inquiry) would be defined similarly with improved error handling and logging
+# Other command handlers (done_command, clarify_command, list_employees_command, notify_command, handle_media_message, handle_button_callback, taskdone_command, broadcast_command, mytasks_command)
 
 # Helper function for scheduled messages
 async def send_fixed_message(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -310,7 +310,7 @@ async def webhook():
         await application.process_update(update)
     return "OK", 200
 
-def main() -> None:
+async def main() -> None:
     """Start the bot."""
     try:
         # Create the Application and pass it your bot's token.
