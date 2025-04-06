@@ -29,10 +29,9 @@ EMPLOYEES = {
     
 }
 
-# Initialize Bot
+# Initialize database and bot
+from database import db
 application = Application.builder().token(BOT_TOKEN).build()
-
-# Initialize Flask
 app = Quart(__name__)
 
 # Global state management
@@ -155,17 +154,8 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
         task_counter += 1
         task_id = task_counter
         
-        # Store task information
-        TASKS[task_id] = {
-            'id': task_id,
-            'task': task,
-            'employees': employees,
-            'status': 'active',
-            'created_at': datetime.now(pytz.timezone('Asia/Dubai')),
-            'reminder_interval': minutes,
-            'inquiries': [],
-            'clarifications': []
-        }
+        # Store task in database
+        await db.create_task(task_id, task, employees, minutes)
         
         # Send task to each employee
         for employee in employees:
