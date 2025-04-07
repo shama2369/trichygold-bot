@@ -28,7 +28,7 @@ class MongoDB:
             self.client = MongoClient(
                 mongodb_uri,
                 ssl=True,
-                ssl_cert_reqs=ssl.CERT_NONE,  # Disable certificate verification for troubleshooting
+                tlsAllowInvalidCertificates=True,  # Disable certificate verification for troubleshooting
                 connectTimeoutMS=30000,
                 socketTimeoutMS=30000,
                 serverSelectionTimeoutMS=30000,

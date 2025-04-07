@@ -967,6 +967,25 @@ async def send_task_reminder(context: ContextTypes.DEFAULT_TYPE):
         else:
             job.schedule_removal()
 
+async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle errors in the telegram bot."""
+    logger.error(f"Exception while handling an update: {context.error}")
+    
+    try:
+        # Send error message to admin
+        error_message = f"⚠️ Bot Error: {context.error}\n\nUpdate: {update}"
+        
+        # Truncate message if it's too long
+        if len(error_message) > 4000:
+            error_message = error_message[:4000] + "..."
+            
+        await context.bot.send_message(
+            chat_id=YOUR_ID,
+            text=error_message
+        )
+    except Exception as e:
+        logger.error(f"Failed to send error notification: {e}")
+
 async def ping():
     """Self-ping to keep the service alive"""
     try:
