@@ -27,7 +27,7 @@ class MongoDB:
             # Configure MongoDB client with SSL options
             self.client = MongoClient(
                 mongodb_uri,
-                ssl=True,
+                tls=True,
                 tlsAllowInvalidCertificates=True,  # Disable certificate verification for troubleshooting
                 connectTimeoutMS=30000,
                 socketTimeoutMS=30000,
@@ -36,23 +36,44 @@ class MongoDB:
                 w="majority"
             )
             
-            # Test connection
-            self.client.admin.command('ping')
-            logger.info("Successfully connected to MongoDB")
-            
-            self.db: Database = self.client['trichygold_bot']
-            self.in_memory_mode = False
+            # Try to connect to MongoDB
+            try:
+                # Test the connection with a ping command
+                ping_result = self.client.admin.command('ping')
+                
+                # If ping succeeds, set up collections
+                self.db: Database = self.client["trichygold_bot"]
+                self.tasks: Collection = self.db["tasks"]
+                self.inquiries: Collection = self.db["inquiries"]
+                self.notifications: Collection = self.db["notifications"]
+                self.messages: Collection = self.db["messages"]
+                
+                # Try a simple database operation to verify full connectivity
+                test_result = self.db.command('buildInfo')
+                
+                # Get server info for detailed logging
+                server_info = self.client.server_info()
+                
+                logger.info(f"Successfully connected to MongoDB:")
+                logger.info(f"  - Server: {server_info.get('host', 'unknown')}")
+                logger.info(f"  - Version: {server_info.get('version', 'unknown')}")
+                logger.info(f"  - Database: {self.db.name}")
+                self.in_memory_mode = False
+            except Exception as e:
+                logger.error(f"Failed to connect to MongoDB: {e}")
+                logger.warning("Using in-memory storage as fallback")
+                self.in_memory_mode = True
+                self.tasks_data = []
+                self.inquiries_data = []
+                self.notifications_data = []
+                self.messages_data = []
             
             # Collections
-            self.tasks: Collection = self.db['tasks']
-            self.inquiries: Collection = self.db['inquiries']
-            self.notifications: Collection = self.db['notifications']
-            self.messages: Collection = self.db['messages']
-            
-            # Create indexes
-            self.tasks.create_index('task_id', unique=True)
-            self.inquiries.create_index('inquiry_id', unique=True)
-            
+            if not self.in_memory_mode:
+                # Create indexes
+                self.tasks.create_index('task_id', unique=True)
+                self.inquiries.create_index('inquiry_id', unique=True)
+        
         except Exception as e:
             logger.error(f"Failed to connect to MongoDB: {e}")
             # Create fallback in-memory storage for development/testing
@@ -192,6 +213,19 @@ class MongoDB:
             return [n for n in self.notifications_data if n['status'] == 'pending']
         else:
             return await self.notifications.find({'status': 'pending'}).to_list(length=None)
+    
+    def is_connected(self) -> bool:
+        """Check if MongoDB is connected and operational"""
+        if self.in_memory_mode:
+            return False
+            
+        try:
+            # Try to ping the database
+            ping_result = self.client.admin.command('ping')
+            return ping_result.get('ok', 0) == 1
+        except Exception as e:
+            logger.error(f"Connection check failed: {e}")
+            return False
     
     # Custom message operations
     async def save_message(self, message_id: int, content: str, sent_by: str) -> Dict:

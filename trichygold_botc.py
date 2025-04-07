@@ -1011,6 +1011,52 @@ async def ping():
 async def health_check():
     return "Bot is running", 200
 
+async def db_status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /dbstatus command to check MongoDB connection status"""
+    chat_id = update.message.chat_id
+    user_id = str(chat_id)
+    
+    # Only allow admin to check database status
+    if user_id != YOUR_ID:
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="⚠️ Sorry, only admin can check database status."
+        )
+        return
+    
+    # Check MongoDB connection status
+    is_connected = db.is_connected()
+    
+    if is_connected:
+        # Get more detailed information
+        try:
+            server_info = db.client.server_info()
+            message = (
+                f"✅ MongoDB Connection Status: CONNECTED\n\n"
+                f"Server: {server_info.get('host', 'unknown')}\n"
+                f"Version: {server_info.get('version', 'unknown')}\n"
+                f"Database: {db.db.name}\n\n"
+                f"Storage Mode: MongoDB"
+            )
+        except Exception as e:
+            message = (
+                f"✅ MongoDB Connection Status: CONNECTED\n\n"
+                f"Could not retrieve detailed info: {str(e)}\n\n"
+                f"Storage Mode: MongoDB"
+            )
+    else:
+        message = (
+            f"❌ MongoDB Connection Status: DISCONNECTED\n\n"
+            f"Using fallback in-memory storage.\n"
+            f"Note: Data will be lost when the bot restarts.\n\n"
+            f"Storage Mode: In-Memory"
+        )
+    
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=message
+    )
+
 @app.route('/webhook', methods=['POST'])
 async def webhook():
     data = await request.get_json()
@@ -1036,6 +1082,7 @@ async def main() -> None:
         application.add_handler(CommandHandler("broadcast", broadcast_command))
         application.add_handler(CommandHandler("list_employees", list_employees_command))
         application.add_handler(CommandHandler("mytasks", mytasks_command))
+        application.add_handler(CommandHandler("dbstatus", db_status_command))
         
         # Media message handler for clarifications, inquiries, and broadcasts
         application.add_handler(MessageHandler(
@@ -1050,8 +1097,19 @@ async def main() -> None:
         application.add_error_handler(error_handler)
 
         # Configure webhook
-        webhook_url = f"https://{os.getenv('RENDER_SERVICE_URL', 'localhost')}/webhook"
-        await application.bot.set_webhook(webhook_url)
+        service_url = os.getenv('SERVICE_URL', os.getenv('RENDER_SERVICE_URL'))
+        if service_url and not service_url.startswith('http'):
+            service_url = f"https://{service_url}"
+            
+        # Only set webhook if we have a valid external URL
+        if service_url and 'localhost' not in service_url and '127.0.0.1' not in service_url:
+            webhook_url = f"{service_url}/webhook"
+            logger.info(f"Setting webhook to: {webhook_url}")
+            await application.bot.set_webhook(webhook_url)
+        else:
+            logger.warning("No valid external URL found for webhook. Running in polling mode.")
+            await application.bot.delete_webhook()
+            await application.start_polling()
         
         # Start the webhook server
         config = uvicorn.Config(
