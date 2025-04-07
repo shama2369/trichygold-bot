@@ -4,21 +4,65 @@ from typing import Dict, List, Optional
 from pymongo import MongoClient
 from pymongo.collection import Collection
 from pymongo.database import Database
+import logging
+import ssl
+
+# Set up logging
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
 
 class MongoDB:
     def __init__(self):
-        self.client = MongoClient(os.getenv('MONGODB_URI'))
-        self.db: Database = self.client['trichygold_bot']
-        
-        # Collections
-        self.tasks: Collection = self.db['tasks']
-        self.inquiries: Collection = self.db['inquiries']
-        self.notifications: Collection = self.db['notifications']
-        self.messages: Collection = self.db['messages']
-        
-        # Create indexes
-        self.tasks.create_index('task_id', unique=True)
-        self.inquiries.create_index('inquiry_id', unique=True)
+        try:
+            # Get MongoDB URI from environment variables
+            mongodb_uri = os.getenv('MONGODB_URI')
+            
+            if not mongodb_uri:
+                logger.error("MONGODB_URI environment variable not set")
+                raise ValueError("MONGODB_URI environment variable not set")
+            
+            # Configure MongoDB client with SSL options
+            self.client = MongoClient(
+                mongodb_uri,
+                ssl=True,
+                ssl_cert_reqs=ssl.CERT_NONE,  # Disable certificate verification for troubleshooting
+                connectTimeoutMS=30000,
+                socketTimeoutMS=30000,
+                serverSelectionTimeoutMS=30000,
+                retryWrites=True,
+                w="majority"
+            )
+            
+            # Test connection
+            self.client.admin.command('ping')
+            logger.info("Successfully connected to MongoDB")
+            
+            self.db: Database = self.client['trichygold_bot']
+            self.in_memory_mode = False
+            
+            # Collections
+            self.tasks: Collection = self.db['tasks']
+            self.inquiries: Collection = self.db['inquiries']
+            self.notifications: Collection = self.db['notifications']
+            self.messages: Collection = self.db['messages']
+            
+            # Create indexes
+            self.tasks.create_index('task_id', unique=True)
+            self.inquiries.create_index('inquiry_id', unique=True)
+            
+        except Exception as e:
+            logger.error(f"Failed to connect to MongoDB: {e}")
+            # Create fallback in-memory storage for development/testing
+            self.client = None
+            self.in_memory_mode = True
+            self.tasks_data = []
+            self.inquiries_data = []
+            self.notifications_data = []
+            self.messages_data = []
+            logger.warning("Using in-memory storage as fallback")
         
     # Task operations
     async def create_task(self, task_id: int, task: str, employees: List[str], reminder_interval: int) -> Dict:
@@ -32,25 +76,48 @@ class MongoDB:
             'inquiries': [],
             'clarifications': []
         }
-        await self.tasks.insert_one(task_doc)
+        
+        if self.in_memory_mode:
+            self.tasks_data.append(task_doc)
+        else:
+            await self.tasks.insert_one(task_doc)
+            
         return task_doc
     
     async def get_task(self, task_id: int) -> Optional[Dict]:
-        return await self.tasks.find_one({'task_id': task_id})
+        if self.in_memory_mode:
+            for task in self.tasks_data:
+                if task['task_id'] == task_id:
+                    return task
+            return None
+        else:
+            return await self.tasks.find_one({'task_id': task_id})
     
     async def update_task_status(self, task_id: int, status: str, completed_by: str = None) -> bool:
-        update = {
-            '$set': {
-                'status': status,
-                'completed_at': datetime.now(),
-                'completed_by': completed_by
+        if self.in_memory_mode:
+            for task in self.tasks_data:
+                if task['task_id'] == task_id:
+                    task['status'] = status
+                    task['completed_at'] = datetime.now()
+                    task['completed_by'] = completed_by
+                    return True
+            return False
+        else:
+            update = {
+                '$set': {
+                    'status': status,
+                    'completed_at': datetime.now(),
+                    'completed_by': completed_by
+                }
             }
-        }
-        result = await self.tasks.update_one({'task_id': task_id}, update)
-        return result.modified_count > 0
+            result = await self.tasks.update_one({'task_id': task_id}, update)
+            return result.modified_count > 0
     
     async def get_active_tasks(self) -> List[Dict]:
-        return await self.tasks.find({'status': 'active'}).to_list(length=None)
+        if self.in_memory_mode:
+            return [task for task in self.tasks_data if task['status'] == 'active']
+        else:
+            return await self.tasks.find({'status': 'active'}).to_list(length=None)
     
     # Inquiry operations
     async def add_inquiry(self, task_id: int, employee: str, message: str) -> Dict:
@@ -60,13 +127,24 @@ class MongoDB:
             'message': message,
             'created_at': datetime.now()
         }
-        await self.inquiries.insert_one(inquiry)
         
-        # Update task with inquiry reference
-        await self.tasks.update_one(
-            {'task_id': task_id},
-            {'$push': {'inquiries': inquiry['_id']}}
-        )
+        if self.in_memory_mode:
+            self.inquiries_data.append(inquiry)
+            # Find and update the task in memory
+            for task in self.tasks_data:
+                if task['task_id'] == task_id:
+                    if 'inquiries' not in task:
+                        task['inquiries'] = []
+                    task['inquiries'].append(inquiry)
+                    break
+        else:
+            await self.inquiries.insert_one(inquiry)
+            # Update task with inquiry reference
+            await self.tasks.update_one(
+                {'task_id': task_id},
+                {'$push': {'inquiries': inquiry['_id']}}
+            )
+            
         return inquiry
     
     async def add_clarification(self, task_id: int, message: str) -> Dict:
@@ -76,11 +154,21 @@ class MongoDB:
             'created_at': datetime.now()
         }
         
-        # Update task with clarification
-        await self.tasks.update_one(
-            {'task_id': task_id},
-            {'$push': {'clarifications': clarification}}
-        )
+        if self.in_memory_mode:
+            # Find and update the task in memory
+            for task in self.tasks_data:
+                if task['task_id'] == task_id:
+                    if 'clarifications' not in task:
+                        task['clarifications'] = []
+                    task['clarifications'].append(clarification)
+                    break
+        else:
+            # Update task with clarification
+            await self.tasks.update_one(
+                {'task_id': task_id},
+                {'$push': {'clarifications': clarification}}
+            )
+            
         return clarification
     
     # Notification operations
@@ -91,11 +179,19 @@ class MongoDB:
             'created_at': datetime.now(),
             'status': 'pending'
         }
-        await self.notifications.insert_one(notification)
+        
+        if self.in_memory_mode:
+            self.notifications_data.append(notification)
+        else:
+            await self.notifications.insert_one(notification)
+            
         return notification
     
     async def get_pending_notifications(self) -> List[Dict]:
-        return await self.notifications.find({'status': 'pending'}).to_list(length=None)
+        if self.in_memory_mode:
+            return [n for n in self.notifications_data if n['status'] == 'pending']
+        else:
+            return await self.notifications.find({'status': 'pending'}).to_list(length=None)
     
     # Custom message operations
     async def save_message(self, message_id: int, content: str, sent_by: str) -> Dict:
@@ -105,7 +201,12 @@ class MongoDB:
             'sent_by': sent_by,
             'created_at': datetime.now()
         }
-        await self.messages.insert_one(message)
+        
+        if self.in_memory_mode:
+            self.messages_data.append(message)
+        else:
+            await self.messages.insert_one(message)
+            
         return message
 
 # Global database instance
