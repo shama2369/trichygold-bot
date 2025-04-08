@@ -6,6 +6,7 @@ from pymongo.collection import Collection
 from pymongo.database import Database
 import logging
 import ssl
+import certifi
 
 # Set up logging
 logging.basicConfig(
@@ -25,16 +26,31 @@ class MongoDB:
                 raise ValueError("MONGODB_URI environment variable not set")
             
             # Configure MongoDB client with SSL options
-            self.client = MongoClient(
-                mongodb_uri,
-                tls=True,
-                tlsAllowInvalidCertificates=True,  # Disable certificate verification for troubleshooting
-                connectTimeoutMS=30000,
-                socketTimeoutMS=30000,
-                serverSelectionTimeoutMS=30000,
-                retryWrites=True,
-                w="majority"
-            )
+            # Parse connection string to check if it already contains SSL params
+            if '?' in mongodb_uri and ('ssl=true' in mongodb_uri.lower() or 'tls=true' in mongodb_uri.lower()):
+                # SSL params already in URI, use as is
+                self.client = MongoClient(
+                    mongodb_uri,
+                    connectTimeoutMS=30000,
+                    socketTimeoutMS=30000,
+                    serverSelectionTimeoutMS=30000,
+                    retryWrites=True,
+                    w="majority"
+                )
+                logger.info("Using SSL parameters from connection string")
+            else:
+                # Add SSL params to client constructor
+                self.client = MongoClient(
+                    mongodb_uri,
+                    tls=True,
+                    tlsAllowInvalidCertificates=True,  # More permissive for troubleshooting
+                    connectTimeoutMS=30000,
+                    socketTimeoutMS=30000,
+                    serverSelectionTimeoutMS=30000,
+                    retryWrites=True,
+                    w="majority"
+                )
+                logger.info("Using explicit SSL parameters")
             
             # Try to connect to MongoDB
             try:
