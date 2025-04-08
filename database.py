@@ -37,27 +37,32 @@ class MongoDB:
             
             # Try to connect to MongoDB
             try:
-                # Test the connection with a ping command
-                ping_result = self.client.admin.command('ping')
+                # Log connection attempt details
+                logger.info(f"MongoDB URI pattern: {mongodb_uri.split('@')[1].split('/')[0] if '@' in mongodb_uri else 'unknown'}")  # Safe logging of URI pattern without credentials
+                logger.info(f"MongoDB client options: connectTimeoutMS=30000, socketTimeoutMS=30000, serverSelectionTimeoutMS=30000")
                 
-                # If ping succeeds, set up collections
-                self.db: Database = self.client["trichygold_bot"]
-                self.tasks: Collection = self.db["tasks"]
-                self.inquiries: Collection = self.db["inquiries"]
-                self.notifications: Collection = self.db["notifications"]
-                self.messages: Collection = self.db["messages"]
-                
-                # Try a simple database operation to verify full connectivity
-                test_result = self.db.command('buildInfo')
+                # Ping the database to check connection
+                logger.info("Attempting to ping MongoDB server...")
+                self.client.admin.command('ping')
                 
                 # Get server info for detailed logging
                 server_info = self.client.server_info()
+                logger.info(f"Successfully connected to MongoDB. Server version: {server_info.get('version', 'unknown')}")
                 
-                logger.info(f"Successfully connected to MongoDB:")
-                logger.info(f"  - Server: {server_info.get('host', 'unknown')}")
-                logger.info(f"  - Version: {server_info.get('version', 'unknown')}")
-                logger.info(f"  - Database: {self.db.name}")
+                # Set up database and collections
+                self.db = self.client.get_database("trichygold_bot")
+                self.tasks = self.db.get_collection("tasks")
+                self.inquiries = self.db.get_collection("inquiries")
+                self.notifications = self.db.get_collection("notifications")
+                self.messages = self.db.get_collection("messages")
+                
+                # Set storage mode flag
                 self.in_memory_mode = False
+                logger.info("Using MongoDB for storage")
+                
+                # Create indexes
+                self.tasks.create_index('task_id', unique=True)
+                self.inquiries.create_index('inquiry_id', unique=True)
             except Exception as e:
                 logger.error(f"Failed to connect to MongoDB: {e}")
                 logger.warning("Using in-memory storage as fallback")
