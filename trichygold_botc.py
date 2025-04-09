@@ -1247,7 +1247,8 @@ async def main() -> None:
             
             # Start application in a separate task and ensure it's running
             logger.info("Starting polling...")
-            polling_task = asyncio.create_task(application.start_polling(allowed_updates=Update.ALL_TYPES))
+            # Create the polling task and actually run it
+            polling_task = asyncio.create_task(application.run_polling(allowed_updates=Update.ALL_TYPES))
             
             # Log that polling has started
             logger.info("Polling started successfully")
