@@ -1228,6 +1228,15 @@ async def main() -> None:
         port = int(os.getenv('PORT', 10000))
         logger.info(f"Will bind to port {port}")
         
+        # Always start a web server to satisfy Render's port binding requirement
+        config = uvicorn.Config(
+            app=app,
+            host="0.0.0.0",
+            port=port,
+            loop="asyncio"
+        )
+        server = uvicorn.Server(config)
+        
         # Check if we have a valid external URL for webhook mode
         if service_url and 'localhost' not in service_url and '127.0.0.1' not in service_url:
             # Webhook mode
@@ -1237,31 +1246,22 @@ async def main() -> None:
             
             # Start the webhook server
             logger.info(f"Starting webhook server on port {port}")
+            await server.serve()
         else:
             # Polling mode
             logger.warning("No valid external URL found for webhook. Running in polling mode.")
             await application.bot.delete_webhook()
             
-            # Use the correct polling method for python-telegram-bot v20+
-            await application.initialize()
+            # Start the web server in a separate task
+            web_server_task = asyncio.create_task(server.serve())
             
-            # Start application in a separate task and ensure it's running
+            # Start polling directly (not as a task)
             logger.info("Starting polling...")
-            # Create the polling task and actually run it
-            polling_task = asyncio.create_task(application.run_polling(allowed_updates=Update.ALL_TYPES))
+            await application.initialize()
+            await application.start_polling(allowed_updates=Update.ALL_TYPES)
             
-            # Log that polling has started
-            logger.info("Polling started successfully")
-        
-        # Always start a web server to satisfy Render's port binding requirement
-        config = uvicorn.Config(
-            app=app,
-            host="0.0.0.0",
-            port=port,
-            loop="asyncio"
-        )
-        server = uvicorn.Server(config)
-        await server.serve()
+            # This line will only be reached when polling is stopped
+            logger.info("Polling has stopped")
     except Exception as e:
         logger.error(f"Fatal error in main: {e}")
         raise
