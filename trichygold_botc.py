@@ -1255,10 +1255,11 @@ async def main() -> None:
             # Start the web server in a separate task
             web_server_task = asyncio.create_task(server.serve())
             
-            # Start polling directly (not as a task)
+            # Start polling directly
             logger.info("Starting polling...")
             await application.initialize()
-            await application.start_polling(allowed_updates=Update.ALL_TYPES)
+            # Use the correct method for python-telegram-bot v20+
+            await application.start()
             
             # This line will only be reached when polling is stopped
             logger.info("Polling has stopped")
