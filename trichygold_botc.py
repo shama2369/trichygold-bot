@@ -1245,12 +1245,12 @@ async def main() -> None:
             # Use the correct polling method for python-telegram-bot v20+
             await application.initialize()
             
-            # Start application in a separate task
-            app_task = asyncio.create_task(application.start())
+            # Start application in a separate task and ensure it's running
+            logger.info("Starting polling...")
+            polling_task = asyncio.create_task(application.start_polling(allowed_updates=Update.ALL_TYPES))
             
-            # Only start polling once and store the task
-            # We'll start polling AFTER the web server is running to avoid conflicts
-            logger.info("Will start polling after web server is running")
+            # Log that polling has started
+            logger.info("Polling started successfully")
         
         # Always start a web server to satisfy Render's port binding requirement
         config = uvicorn.Config(
