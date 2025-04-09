@@ -1278,7 +1278,10 @@ async def main() -> None:
             
             # Run the polling in a simpler way
             await application.initialize()
-            await application.start_polling(drop_pending_updates=True)
+            
+            # Use the correct method for your version of python-telegram-bot
+            logger.info("Starting application with run_polling")
+            await application.run_polling(drop_pending_updates=True)
             
             # This line will only be reached when polling is stopped
             logger.info("Polling has stopped")
