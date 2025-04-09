@@ -971,6 +971,18 @@ async def send_task_reminder(context: ContextTypes.DEFAULT_TYPE):
         else:
             job.schedule_removal()
 
+async def log_all_updates(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Log all incoming updates for debugging purposes"""
+    try:
+        if update.message:
+            logger.info(f"Received message update: {update.message.text} from user {update.message.from_user.id}")
+        elif update.callback_query:
+            logger.info(f"Received callback query: {update.callback_query.data} from user {update.callback_query.from_user.id}")
+        else:
+            logger.info(f"Received update of type: {update}")
+    except Exception as e:
+        logger.error(f"Error in log_all_updates: {e}")
+
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle errors in the telegram bot."""
     logger.error(f"Exception while handling an update: {context.error}")
@@ -1258,22 +1270,18 @@ async def main() -> None:
             # Start the web server in a separate task
             web_server_task = asyncio.create_task(server.serve())
             
-            # Start polling directly
-            logger.info("Starting polling...")
+            # Start polling directly with a simpler approach
+            logger.info("Starting polling with drop_pending_updates=True and allowed_updates=All")
+            
+            # Set up more detailed logging for updates
+            application.add_handler(MessageHandler(filters.ALL, log_all_updates), group=999)
+            
+            # Run the polling in a simpler way
             await application.initialize()
+            await application.start_polling(drop_pending_updates=True)
             
-            # Create a task for polling that will run indefinitely
-            polling_task = asyncio.create_task(application.updater.start_polling())
-            
-            # Wait indefinitely to keep the bot running
-            try:
-                # This will run until the program is terminated
-                await asyncio.Future()
-            except asyncio.CancelledError:
-                # Handle graceful shutdown
-                logger.info("Stopping polling...")
-                await application.stop()
-                logger.info("Polling has stopped")
+            # This line will only be reached when polling is stopped
+            logger.info("Polling has stopped")
     except Exception as e:
         logger.error(f"Fatal error in main: {e}")
         raise
