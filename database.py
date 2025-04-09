@@ -25,10 +25,11 @@ class MongoDB:
                 logger.error("MONGODB_URI environment variable not set")
                 raise ValueError("MONGODB_URI environment variable not set")
             
-            # Connect with minimal parameters to avoid duplication with URI params
+            # Connect with minimal parameters but ensure SSL certificate validation
             logger.info("Attempting to connect to MongoDB...")
             self.client = MongoClient(
                 mongodb_uri,
+                tlsCAFile=certifi.where(),  # Add SSL certificate validation
                 connectTimeoutMS=30000,
                 socketTimeoutMS=30000,
                 serverSelectionTimeoutMS=30000
