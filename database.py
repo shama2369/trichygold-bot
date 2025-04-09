@@ -10,6 +10,7 @@ import ssl
 import certifi
 import time
 import asyncio
+import urllib.parse
 
 # Set up logging
 logging.basicConfig(
@@ -66,6 +67,25 @@ class MongoDB:
                 self.connection_error = "MONGODB_URI environment variable not set"
                 self.connection_status["error"] = self.connection_error
                 return False
+            
+            # Properly encode username and password in the URI
+            if '@' in mongodb_uri:
+                try:
+                    # Split the URI into components
+                    prefix, rest = mongodb_uri.split('://', 1)
+                    auth_part, host_part = rest.split('@', 1)
+                    
+                    # Check if auth part contains username and password
+                    if ':' in auth_part:
+                        username, password = auth_part.split(':', 1)
+                        # URL encode the username and password
+                        encoded_username = urllib.parse.quote_plus(username)
+                        encoded_password = urllib.parse.quote_plus(password)
+                        # Reconstruct the URI
+                        mongodb_uri = f"{prefix}://{encoded_username}:{encoded_password}@{host_part}"
+                        logger.info("URI components have been properly URL-encoded")
+                except Exception as e:
+                    logger.warning(f"Failed to encode URI components: {str(e)}")
             
             # Update connection status
             self.last_connection_attempt = datetime.now()
