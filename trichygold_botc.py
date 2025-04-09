@@ -1026,36 +1026,157 @@ async def db_status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Check MongoDB connection status
     is_connected = db.is_connected()
+    connection_details = db.get_connection_details()
     
     if is_connected:
         # Get more detailed information
         try:
-            server_info = db.client.server_info()
+            server_info = connection_details.get("server_info", {})
+            connections_info = server_info.get("connections", {})
+            active_connections = connections_info.get("current", "unknown")
+            available_connections = connections_info.get("available", "unknown")
+            
             message = (
                 f"✅ MongoDB Connection Status: CONNECTED\n\n"
                 f"Server: {server_info.get('host', 'unknown')}\n"
                 f"Version: {server_info.get('version', 'unknown')}\n"
-                f"Database: {db.db.name}\n\n"
-                f"Storage Mode: MongoDB"
+                f"Database: {db.db.name}\n"
+                f"Active Connections: {active_connections}\n"
+                f"Available Connections: {available_connections}\n"
+                f"Last Connection Attempt: {connection_details.get('last_attempt', 'unknown')}\n\n"
+                f"Storage Mode: MongoDB\n\n"
+                f"Commands:\n"
+                f"/dbreconnect - Force reconnection attempt\n"
+                f"/dbmigrate - Migrate in-memory data to MongoDB"
             )
         except Exception as e:
             message = (
                 f"✅ MongoDB Connection Status: CONNECTED\n\n"
                 f"Could not retrieve detailed info: {str(e)}\n\n"
-                f"Storage Mode: MongoDB"
+                f"Storage Mode: MongoDB\n\n"
+                f"Commands:\n"
+                f"/dbreconnect - Force reconnection attempt\n"
+                f"/dbmigrate - Migrate in-memory data to MongoDB"
             )
     else:
+        # Get error information
+        error_msg = connection_details.get("error", "Unknown error")
+        last_attempt = connection_details.get("last_attempt", "Never")
+        reconnect_attempts = connection_details.get("reconnect_attempts", 0)
+        
         message = (
             f"❌ MongoDB Connection Status: DISCONNECTED\n\n"
+            f"Error: {error_msg}\n"
+            f"Last Connection Attempt: {last_attempt}\n"
+            f"Reconnection Attempts: {reconnect_attempts}\n\n"
             f"Using fallback in-memory storage.\n"
             f"Note: Data will be lost when the bot restarts.\n\n"
-            f"Storage Mode: In-Memory"
+            f"Storage Mode: In-Memory\n\n"
+            f"Commands:\n"
+            f"/dbreconnect - Force reconnection attempt"
         )
     
     await context.bot.send_message(
         chat_id=chat_id,
         text=message
     )
+
+async def db_reconnect_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /dbreconnect command to force a reconnection attempt to MongoDB"""
+    chat_id = update.message.chat_id
+    user_id = str(chat_id)
+    
+    # Only allow admin to force reconnection
+    if user_id != YOUR_ID:
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="⚠️ Sorry, only admin can force database reconnection."
+        )
+        return
+    
+    # Send initial message
+    status_message = await context.bot.send_message(
+        chat_id=chat_id,
+        text="🔄 Attempting to reconnect to MongoDB..."
+    )
+    
+    # Force reconnection attempt
+    reconnection_successful = await db.try_reconnect()
+    
+    if reconnection_successful:
+        await context.bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=status_message.message_id,
+            text="✅ Successfully reconnected to MongoDB!\n\nUse /dbstatus to see connection details."
+        )
+        
+        # Check if we need to migrate in-memory data
+        if db.in_memory_mode:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="ℹ️ You have data in memory that can be migrated to MongoDB.\n\nUse /dbmigrate to transfer this data."
+            )
+    else:
+        connection_details = db.get_connection_details()
+        error_msg = connection_details.get("error", "Unknown error")
+        
+        await context.bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=status_message.message_id,
+            text=f"❌ Failed to reconnect to MongoDB.\n\nError: {error_msg}\n\nUse /dbstatus to see connection details."
+        )
+
+async def db_migrate_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /dbmigrate command to migrate in-memory data to MongoDB"""
+    chat_id = update.message.chat_id
+    user_id = str(chat_id)
+    
+    # Only allow admin to migrate data
+    if user_id != YOUR_ID:
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="⚠️ Sorry, only admin can migrate database data."
+        )
+        return
+    
+    # Check if migration is needed
+    if not db.in_memory_mode:
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="ℹ️ No migration needed. Already using MongoDB for storage."
+        )
+        return
+    
+    # Check if MongoDB is connected
+    if not db.is_connected():
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="❌ Cannot migrate data. MongoDB is not connected.\n\nUse /dbreconnect to try reconnecting first."
+        )
+        return
+    
+    # Send initial message
+    status_message = await context.bot.send_message(
+        chat_id=chat_id,
+        text="🔄 Migrating in-memory data to MongoDB..."
+    )
+    
+    # Perform migration
+    success, migrated_count = await db.migrate_memory_to_db()
+    
+    if success:
+        await context.bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=status_message.message_id,
+            text=f"✅ Successfully migrated {migrated_count} items to MongoDB!\n\nStorage mode switched to MongoDB.\n\nUse /dbstatus to see connection details."
+        )
+    else:
+        await context.bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=status_message.message_id,
+            text=f"❌ Failed to migrate data to MongoDB.\n\nStill using in-memory storage.\n\nUse /dbstatus to see connection details."
+        )
+
 
 @app.route('/webhook', methods=['POST'])
 async def webhook():
@@ -1083,6 +1204,8 @@ async def main() -> None:
         application.add_handler(CommandHandler("list_employees", list_employees_command))
         application.add_handler(CommandHandler("mytasks", mytasks_command))
         application.add_handler(CommandHandler("dbstatus", db_status_command))
+        application.add_handler(CommandHandler("dbreconnect", db_reconnect_command))
+        application.add_handler(CommandHandler("dbmigrate", db_migrate_command))
         
         # Media message handler for clarifications, inquiries, and broadcasts
         application.add_handler(MessageHandler(
@@ -1122,10 +1245,12 @@ async def main() -> None:
             # Use the correct polling method for python-telegram-bot v20+
             await application.initialize()
             
-            # Start polling in a separate task so we can also start the web server
-            polling_task = asyncio.create_task(application.updater.start_polling())
-            # Also start the application in a separate task
+            # Start application in a separate task
             app_task = asyncio.create_task(application.start())
+            
+            # Only start polling once and store the task
+            # We'll start polling AFTER the web server is running to avoid conflicts
+            logger.info("Will start polling after web server is running")
         
         # Always start a web server to satisfy Render's port binding requirement
         config = uvicorn.Config(

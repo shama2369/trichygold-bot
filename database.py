@@ -1,12 +1,15 @@
 import os
-from datetime import datetime
-from typing import Dict, List, Optional
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional, Any, Tuple
 from pymongo import MongoClient
 from pymongo.collection import Collection
 from pymongo.database import Database
+from pymongo.errors import ConnectionFailure, ServerSelectionTimeoutError, OperationFailure
 import logging
 import ssl
 import certifi
+import time
+import asyncio
 
 # Set up logging
 logging.basicConfig(
@@ -17,13 +20,57 @@ logger = logging.getLogger(__name__)
 
 class MongoDB:
     def __init__(self):
+        # Initialize state variables
+        self.client = None
+        self.db = None
+        self.tasks = None
+        self.inquiries = None
+        self.notifications = None
+        self.messages = None
+        self.in_memory_mode = True
+        self.connection_error = None
+        self.last_connection_attempt = None
+        self.reconnect_attempts = 0
+        self.max_reconnect_attempts = 5
+        self.reconnect_delay = 5  # seconds
+        self.connection_status = {
+            "status": "disconnected",
+            "last_attempt": None,
+            "error": None,
+            "server_info": None,
+            "reconnect_attempts": 0
+        }
+        
+        # Initialize in-memory fallback storage
+        self.tasks_data = []
+        self.inquiries_data = []
+        self.notifications_data = []
+        self.messages_data = []
+        
+        # Attempt initial connection
+        self._connect_to_mongodb()
+        
+        # Start background reconnection task if needed
+        if self.in_memory_mode:
+            logger.warning("Using in-memory storage as fallback")
+            # We'll handle reconnection attempts in the is_connected method
+
+    def _connect_to_mongodb(self) -> bool:
+        """Attempt to connect to MongoDB with retry logic"""
         try:
             # Get MongoDB URI from environment variables
             mongodb_uri = os.getenv('MONGODB_URI')
             
             if not mongodb_uri:
                 logger.error("MONGODB_URI environment variable not set")
-                raise ValueError("MONGODB_URI environment variable not set")
+                self.connection_error = "MONGODB_URI environment variable not set"
+                self.connection_status["error"] = self.connection_error
+                return False
+            
+            # Update connection status
+            self.last_connection_attempt = datetime.now()
+            self.connection_status["last_attempt"] = self.last_connection_attempt
+            self.connection_status["status"] = "connecting"
             
             # Connect with minimal parameters but ensure SSL certificate validation
             logger.info("Attempting to connect to MongoDB...")
@@ -32,14 +79,21 @@ class MongoDB:
                 tlsCAFile=certifi.where(),  # Add SSL certificate validation
                 connectTimeoutMS=30000,
                 socketTimeoutMS=30000,
-                serverSelectionTimeoutMS=30000
+                serverSelectionTimeoutMS=30000,
+                retryWrites=True,  # Enable retry for write operations
+                w="majority"  # Wait for write acknowledgment from majority of replicas
             )
             logger.info("MongoDB client initialized")
             
             # Try to connect to MongoDB
             try:
-                # Log connection attempt details
-                logger.info(f"MongoDB URI pattern: {mongodb_uri.split('@')[1].split('/')[0] if '@' in mongodb_uri else 'unknown'}")  # Safe logging of URI pattern without credentials
+                # Log connection attempt details (safely without credentials)
+                if '@' in mongodb_uri:
+                    uri_parts = mongodb_uri.split('@')
+                    if len(uri_parts) > 1 and '/' in uri_parts[1]:
+                        host_part = uri_parts[1].split('/')[0]
+                        logger.info(f"MongoDB URI pattern: {host_part}")
+                
                 logger.info(f"MongoDB client options: connectTimeoutMS=30000, socketTimeoutMS=30000, serverSelectionTimeoutMS=30000")
                 
                 # Ping the database to check connection
@@ -59,37 +113,48 @@ class MongoDB:
                 
                 # Set storage mode flag
                 self.in_memory_mode = False
+                self.connection_error = None
+                self.reconnect_attempts = 0
+                
+                # Update connection status
+                self.connection_status = {
+                    "status": "connected",
+                    "last_attempt": self.last_connection_attempt,
+                    "error": None,
+                    "server_info": {
+                        "version": server_info.get('version', 'unknown'),
+                        "host": server_info.get('host', 'unknown'),
+                        "connections": server_info.get('connections', {})
+                    },
+                    "reconnect_attempts": self.reconnect_attempts
+                }
+                
                 logger.info("Using MongoDB for storage")
                 
                 # Create indexes
                 self.tasks.create_index('task_id', unique=True)
                 self.inquiries.create_index('inquiry_id', unique=True)
-            except Exception as e:
-                logger.error(f"Failed to connect to MongoDB: {e}")
-                logger.warning("Using in-memory storage as fallback")
+                
+                return True
+                
+            except (ConnectionFailure, ServerSelectionTimeoutError, OperationFailure) as e:
+                error_msg = f"Failed to connect to MongoDB: {str(e)}"
+                logger.error(error_msg)
+                self.connection_error = error_msg
+                self.connection_status["status"] = "error"
+                self.connection_status["error"] = error_msg
                 self.in_memory_mode = True
-                self.tasks_data = []
-                self.inquiries_data = []
-                self.notifications_data = []
-                self.messages_data = []
-            
-            # Collections
-            if not self.in_memory_mode:
-                # Create indexes
-                self.tasks.create_index('task_id', unique=True)
-                self.inquiries.create_index('inquiry_id', unique=True)
-        
+                return False
+                
         except Exception as e:
-            logger.error(f"Failed to connect to MongoDB: {e}")
-            # Create fallback in-memory storage for development/testing
-            self.client = None
+            error_msg = f"Unexpected error connecting to MongoDB: {str(e)}"
+            logger.error(error_msg)
+            self.connection_error = error_msg
+            self.connection_status["status"] = "error"
+            self.connection_status["error"] = error_msg
             self.in_memory_mode = True
-            self.tasks_data = []
-            self.inquiries_data = []
-            self.notifications_data = []
-            self.messages_data = []
-            logger.warning("Using in-memory storage as fallback")
-        
+            return False
+            
     # Task operations
     async def create_task(self, task_id: int, task: str, employees: List[str], reminder_interval: int) -> Dict:
         task_doc = {
@@ -222,14 +287,57 @@ class MongoDB:
     def is_connected(self) -> bool:
         """Check if MongoDB is connected and operational"""
         if self.in_memory_mode:
+            # Check if we should attempt reconnection
+            current_time = datetime.now()
+            if (self.last_connection_attempt is None or 
+                (current_time - self.last_connection_attempt).total_seconds() > self.reconnect_delay * (2 ** min(self.reconnect_attempts, 5))):
+                
+                # Exponential backoff for reconnection attempts
+                if self.reconnect_attempts < self.max_reconnect_attempts:
+                    logger.info(f"Attempting to reconnect to MongoDB (attempt {self.reconnect_attempts + 1}/{self.max_reconnect_attempts})")
+                    self.reconnect_attempts += 1
+                    self.connection_status["reconnect_attempts"] = self.reconnect_attempts
+                    
+                    # Try to reconnect
+                    if self._connect_to_mongodb():
+                        logger.info("Successfully reconnected to MongoDB")
+                        return True
+                else:
+                    # Reset reconnect attempts counter after max attempts to allow future retries
+                    if (current_time - self.last_connection_attempt).total_seconds() > 300:  # 5 minutes
+                        self.reconnect_attempts = 0
+                        self.connection_status["reconnect_attempts"] = 0
+            
             return False
             
         try:
             # Try to ping the database
             ping_result = self.client.admin.command('ping')
-            return ping_result.get('ok', 0) == 1
+            is_ok = ping_result.get('ok', 0) == 1
+            
+            if is_ok:
+                # Update server info if connection is successful
+                try:
+                    server_info = self.client.server_info()
+                    self.connection_status["server_info"] = {
+                        "version": server_info.get('version', 'unknown'),
+                        "host": server_info.get('host', 'unknown'),
+                        "connections": server_info.get('connections', {})
+                    }
+                except Exception:
+                    # If we can't get server info but ping worked, that's still a success
+                    pass
+                    
+                self.connection_status["status"] = "connected"
+                self.connection_status["error"] = None
+            
+            return is_ok
         except Exception as e:
-            logger.error(f"Connection check failed: {e}")
+            error_msg = f"Connection check failed: {str(e)}"
+            logger.error(error_msg)
+            self.connection_status["status"] = "error"
+            self.connection_status["error"] = error_msg
+            self.in_memory_mode = True
             return False
     
     # Custom message operations
@@ -247,6 +355,68 @@ class MongoDB:
             await self.messages.insert_one(message)
             
         return message
+
+    def get_connection_details(self) -> Dict[str, Any]:
+        """Get detailed connection information for diagnostics"""
+        return self.connection_status
+
+    async def try_reconnect(self) -> bool:
+        """Force a reconnection attempt to MongoDB"""
+        logger.info("Forcing reconnection attempt to MongoDB")
+        self.reconnect_attempts = 0
+        self.last_connection_attempt = None
+        return self._connect_to_mongodb()
+
+    async def migrate_memory_to_db(self) -> Tuple[bool, int]:
+        """Migrate in-memory data to MongoDB if connection is restored"""
+        if not self.is_connected() or not self.in_memory_mode:
+            return False, 0
+            
+        try:
+            # We have a connection but we're still in memory mode
+            # This means we need to migrate data and switch modes
+            migrated_count = 0
+            
+            # Migrate tasks
+            if self.tasks_data:
+                for task in self.tasks_data:
+                    await self.tasks.update_one(
+                        {"task_id": task["task_id"]},
+                        {"$set": task},
+                        upsert=True
+                    )
+                    migrated_count += 1
+                    
+            # Migrate inquiries
+            if self.inquiries_data:
+                for inquiry in self.inquiries_data:
+                    await self.inquiries.update_one(
+                        {"inquiry_id": inquiry.get("inquiry_id")},
+                        {"$set": inquiry},
+                        upsert=True
+                    )
+                    migrated_count += 1
+                    
+            # Migrate notifications
+            if self.notifications_data:
+                for notification in self.notifications_data:
+                    await self.notifications.insert_one(notification)
+                    migrated_count += 1
+                    
+            # Migrate messages
+            if self.messages_data:
+                for message in self.messages_data:
+                    await self.messages.insert_one(message)
+                    migrated_count += 1
+                    
+            # Switch to database mode
+            self.in_memory_mode = False
+            logger.info(f"Successfully migrated {migrated_count} items from memory to MongoDB")
+            
+            return True, migrated_count
+        except Exception as e:
+            logger.error(f"Failed to migrate in-memory data to MongoDB: {e}")
+            return False, 0
 
 # Global database instance
 db = MongoDB()
