@@ -1276,12 +1276,24 @@ async def main() -> None:
             # Set up more detailed logging for updates
             application.add_handler(MessageHandler(filters.ALL, log_all_updates), group=999)
             
-            # Run the polling in a simpler way
-            await application.initialize()
+            # Create a separate task for the web server
+            logger.info("Starting application polling and web server separately")
             
-            # Use the correct method for your version of python-telegram-bot
-            logger.info("Starting application with run_polling")
-            await application.run_polling(drop_pending_updates=True)
+            # Create a future to keep the main task running
+            stop_event = asyncio.Event()
+            
+            # Start the updater in a separate task
+            asyncio.create_task(
+                application.updater.start_polling(drop_pending_updates=True)
+            )
+            
+            # Wait for the stop event (which will never be set in this case)
+            try:
+                await stop_event.wait()
+            except asyncio.CancelledError:
+                logger.info("Polling task cancelled")
+                await application.updater.stop()
+                await application.stop()
             
             # This line will only be reached when polling is stopped
             logger.info("Polling has stopped")
