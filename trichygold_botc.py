@@ -20,7 +20,8 @@ logger = logging.getLogger(__name__)
 
 # Get environment variables
 BOT_TOKEN = os.getenv('BOT_TOKEN', 'YOUR_BOT_TOKEN')
-YOUR_ID = os.getenv('ADMIN_ID', 'YOUR_ADMIN_ID')
+# Set YOUR_ID to a default value that matches your Telegram ID
+YOUR_ID = os.getenv('ADMIN_ID', '1341853859')  # Default to shameem's ID
 
 # Bot Configuration
 EMPLOYEES = {
@@ -79,6 +80,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /start command"""
     chat_id = str(update.message.chat_id)
     user_name = update.message.from_user.first_name
+    
+    # Log the start command for debugging
+    logger.info(f"Start command received from user {chat_id} ({user_name})")
     
     if chat_id == YOUR_ID:
         welcome_message = (
@@ -1016,13 +1020,12 @@ async def db_status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
     user_id = str(chat_id)
     
-    # Only allow admin to check database status
-    if user_id != YOUR_ID:
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text="⚠️ Sorry, only admin can check database status."
-        )
-        return
+    # Allow all users to check basic database status
+    # But show more details to admin
+    is_admin = user_id == YOUR_ID
+    
+    # Log the command for debugging
+    logger.info(f"DB status command received from user {user_id} (admin: {is_admin})")
     
     # Check MongoDB connection status
     is_connected = db.is_connected()
