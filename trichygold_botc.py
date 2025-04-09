@@ -1279,11 +1279,15 @@ async def main() -> None:
             # Create a separate task for the web server
             logger.info("Starting application polling and web server separately")
             
+            # Initialize the application and updater first
+            await application.initialize()
+            await application.updater.initialize()
+            
             # Create a future to keep the main task running
             stop_event = asyncio.Event()
             
             # Start the updater in a separate task
-            asyncio.create_task(
+            polling_task = asyncio.create_task(
                 application.updater.start_polling(drop_pending_updates=True)
             )
             
