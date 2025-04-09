@@ -1258,11 +1258,19 @@ async def main() -> None:
             # Start polling directly
             logger.info("Starting polling...")
             await application.initialize()
-            # Use the correct method for python-telegram-bot v20+
-            await application.start()
             
-            # This line will only be reached when polling is stopped
-            logger.info("Polling has stopped")
+            # Create a task for polling that will run indefinitely
+            polling_task = asyncio.create_task(application.updater.start_polling())
+            
+            # Wait indefinitely to keep the bot running
+            try:
+                # This will run until the program is terminated
+                await asyncio.Future()
+            except asyncio.CancelledError:
+                # Handle graceful shutdown
+                logger.info("Stopping polling...")
+                await application.stop()
+                logger.info("Polling has stopped")
     except Exception as e:
         logger.error(f"Fatal error in main: {e}")
         raise
