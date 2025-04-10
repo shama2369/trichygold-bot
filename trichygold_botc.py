@@ -200,7 +200,7 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 task_counter = task_id
         
         # Store task in database
-        task_doc = await db.create_task(task_id, task, employees, minutes)
+        task_doc = db.create_task(task_id, task, employees, minutes)
         
         # Also store in global TASKS dictionary for backward compatibility
         global TASKS

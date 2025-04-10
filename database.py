@@ -205,7 +205,8 @@ class MongoDB:
             return False
             
     # Task operations
-    async def create_task(self, task_id: int, task: str, employees: List[str], reminder_interval: int) -> Dict:
+    def create_task(self, task_id: int, task: str, employees: List[str], reminder_interval: int) -> Dict:
+        """Create a new task in the database or in-memory storage"""
         task_doc = {
             'task_id': task_id,
             'task': task,
