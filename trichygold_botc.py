@@ -299,10 +299,11 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception as e:
                 logger.error(f"Failed to send task to {employee}: {e}")
         
+        # Use the same reminder_text format as in the employee message
         await update.message.reply_text(
             f"✅ Task #{task_id} assigned to: {', '.join(employees)}\n"
             f"Task: {task}\n"
-            f"Reminders: Every {minutes} minutes"
+            f"Reminders: {reminder_text}"
         )
         
         # Schedule reminder
