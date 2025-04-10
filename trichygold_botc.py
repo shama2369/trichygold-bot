@@ -163,7 +163,7 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
         task_id = task_counter
         
         # Store task in database
-        await db.create_task(task_id, task, employees, minutes)
+        task_doc = await db.create_task(task_id, task, employees, minutes)
         
         # Send task to each employee
         for employee in employees:
@@ -177,7 +177,8 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             # Format time in Dubai timezone
-            created_time = TASKS[task_id]['created_at'].strftime('%I:%M %p')
+            dubai_tz = pytz.timezone('Asia/Dubai')
+            created_time = task_doc['created_at'].astimezone(dubai_tz).strftime('%I:%M %p')
             
             message = (
                 f"📋 New Task #{task_id}\n\n"
@@ -222,8 +223,8 @@ async def done_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         chat_id = str(update.message.chat_id)
         
-        # Get active tasks
-        active_tasks = {tid: task for tid, task in TASKS.items() if not task.get('completed', False)}
+        # Get active tasks from database
+        active_tasks = await db.get_active_tasks()
         
         if not active_tasks:
             await update.message.reply_text("📝 No active tasks at the moment.")
@@ -232,7 +233,8 @@ async def done_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Format tasks based on user role
         if chat_id == YOUR_ID:  # Admin view
             message = "📋 Active Tasks:\n\n"
-            for task_id, task in active_tasks.items():
+            for task in active_tasks:
+                task_id = task['task_id']
                 assignees = task['employees']
                 message += (
                     f"Task #{task_id}:\n"
@@ -246,15 +248,16 @@ async def done_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text("❌ You are not registered as an employee.")
                 return
                 
-            employee_tasks = {tid: task for tid, task in active_tasks.items() 
-                            if employee_name in task['employees']}
+            # Filter tasks for this employee
+            employee_tasks = [task for task in active_tasks if employee_name in task['employees']]
             
             if not employee_tasks:
                 await update.message.reply_text("📝 You have no active tasks at the moment.")
                 return
                 
             message = "📋 Your Active Tasks:\n\n"
-            for task_id, task in employee_tasks.items():
+            for task in employee_tasks:
+                task_id = task['task_id']
                 message += (
                     f"Task #{task_id}:\n"
                     f"• Description: {task['task']}\n"
@@ -668,11 +671,14 @@ async def taskdone_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         
         task_id = int(args[0])
-        if task_id not in TASKS:
+        
+        # Get task from database
+        task_info = await db.get_task(task_id)
+        
+        if not task_info:
             await update.message.reply_text(f"❌ Task #{task_id} not found!")
             return
         
-        task_info = TASKS[task_id]
         if employee_name not in task_info['employees']:
             await update.message.reply_text("❌ This task is not assigned to you!")
             return
@@ -681,17 +687,23 @@ async def taskdone_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"❌ Task #{task_id} is already completed!")
             return
         
-        # Mark task as completed
-        task_info['status'] = 'completed'
-        task_info['completed_at'] = datetime.now(pytz.timezone('Asia/Dubai'))
-        task_info['completed_by'] = employee_name
+        # Mark task as completed in database
+        success = await db.update_task_status(task_id, 'completed', employee_name)
+        
+        if not success:
+            await update.message.reply_text(f"❌ Failed to update task status. Please try again.")
+            return
+        
+        # Get updated task for notification
+        updated_task = await db.get_task(task_id)
+        completed_time = updated_task.get('completed_at', datetime.now()).strftime('%I:%M %p')
         
         # Notify admin
         await context.bot.send_message(
             chat_id=YOUR_ID,
             text=f"✅ Task #{task_id} completed by {employee_name}\n"
                  f"Task: {task_info['task']}\n"
-                 f"Completed at: {task_info['completed_at'].strftime('%I:%M %p')} (UAE)"
+                 f"Completed at: {completed_time} (UAE)"
         )
         
         await update.message.reply_text(f"✅ Task #{task_id} marked as completed!")
@@ -955,9 +967,11 @@ async def send_task_reminder(context: ContextTypes.DEFAULT_TYPE):
     job = context.job
     task_id = job.data['task_id']
     
-    if task_id in TASKS:
-        task_info = TASKS[task_id]
-        if task_info['status'] == 'active':
+    try:
+        # Get task from database
+        task_info = await db.get_task(task_id)
+        
+        if task_info and task_info['status'] == 'active':
             message = (
                 f"⏰ Reminder: Task #{task_id}\n\n"
                 f"Task: {task_info['task']}\n"
@@ -973,7 +987,10 @@ async def send_task_reminder(context: ContextTypes.DEFAULT_TYPE):
                 except Exception as e:
                     logger.error(f"Failed to send reminder to {employee}: {e}")
         else:
+            logger.info(f"Task #{task_id} is no longer active, removing reminder job")
             job.schedule_removal()
+    except Exception as e:
+        logger.error(f"Error in send_task_reminder for task #{task_id}: {e}")
 
 async def log_all_updates(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Log all incoming updates for debugging purposes"""
