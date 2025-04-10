@@ -127,13 +127,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /assign command for task assignment"""
+    logger.info(f"assign_task called with update: {update.message.text}")
+    logger.info(f"User ID: {update.message.chat_id}, Admin ID: {YOUR_ID}")
+    
     if str(update.message.chat_id) != YOUR_ID:
+        logger.warning(f"Unauthorized access attempt from {update.message.chat_id}")
         await update.message.reply_text("❌ Only admin can assign tasks!")
         return
     
     try:
+        logger.info(f"Context args: {context.args}")
         args = context.args
         if len(args) < 2:
+            logger.warning(f"Insufficient arguments: {args}")
             await update.message.reply_text(
                 "❌ Usage: /assign employee1,employee2 <task> [minutes]\n"
                 "Example: /assign rehan,shameem Check inventory 30"
@@ -242,6 +248,7 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     text=message,
                     reply_markup=reply_markup
                 )
+                logger.info(f"Task notification sent to {employee} (chat_id: {chat_id})")
             except Exception as e:
                 logger.error(f"Failed to send task to {employee}: {e}")
         
@@ -261,8 +268,10 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
     
     except Exception as e:
+        import traceback
         logger.error(f"Error in assign_task: {e}")
-        await update.message.reply_text("❌ Failed to assign task. Please try again.")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        await update.message.reply_text(f"❌ Failed to assign task: {e}")
 
 async def done_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /done command to view active tasks"""
