@@ -10,6 +10,10 @@ from quart import Quart, request
 import uvicorn
 import os
 import aiohttp
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Set up logging
 logging.basicConfig(
@@ -1270,52 +1274,53 @@ async def main() -> None:
         )
         server = uvicorn.Server(config)
         
-        # Check if we have a valid external URL for webhook mode
-        if service_url and 'localhost' not in service_url and '127.0.0.1' not in service_url:
-            # Webhook mode
+        # Always use webhook mode on Render or when port 10000 is used (Render's default)
+        # Check multiple environment variables that might indicate we're on Render
+        is_render = os.environ.get('RENDER') or \
+                   os.environ.get('RENDER_SERVICE_ID') or \
+                   os.environ.get('RENDER_EXTERNAL_URL') or \
+                   port == 10000
+            
+        if is_render:
+            # We're on Render, use webhook mode
+            logger.info("Render deployment detected. Using webhook mode.")
+            service_url = os.environ.get('RENDER_EXTERNAL_URL')
+            if not service_url:
+                service_url = f"https://{os.environ.get('RENDER_SERVICE_NAME') or 'your-app'}.onrender.com"
+                
+            # Set up webhook
             webhook_url = f"{service_url}/webhook"
-            logger.info(f"Setting webhook to: {webhook_url}")
+            logger.info(f"Running on Render. Setting webhook to: {webhook_url}")
+            
+            # Set up detailed logging for updates
+            application.add_handler(MessageHandler(filters.ALL, log_all_updates), group=999)
+            
+            # Initialize the application
+            await application.initialize()
+            
+            # Set the webhook
             await application.bot.set_webhook(webhook_url)
             
             # Start the webhook server
             logger.info(f"Starting webhook server on port {port}")
             await server.serve()
         else:
-            # Polling mode
-            logger.warning("No valid external URL found for webhook. Running in polling mode.")
+            # Local development - polling mode
+            logger.info("Local development detected. Running in polling mode.")
             await application.bot.delete_webhook()
             
             # Start the web server in a separate task
             web_server_task = asyncio.create_task(server.serve())
             
-            # Start polling directly with a simpler approach
-            logger.info("Starting polling with drop_pending_updates=True and allowed_updates=All")
-            
-            # Set up more detailed logging for updates
+            # Set up detailed logging for updates
             application.add_handler(MessageHandler(filters.ALL, log_all_updates), group=999)
             
-            # Create a separate task for the web server
-            logger.info("Starting application polling and web server separately")
-            
-            # Initialize the application and updater first
+            # Initialize the application
             await application.initialize()
-            await application.updater.initialize()
             
-            # Create a future to keep the main task running
-            stop_event = asyncio.Event()
-            
-            # Start the updater in a separate task
-            polling_task = asyncio.create_task(
-                application.updater.start_polling(drop_pending_updates=True)
-            )
-            
-            # Wait for the stop event (which will never be set in this case)
-            try:
-                await stop_event.wait()
-            except asyncio.CancelledError:
-                logger.info("Polling task cancelled")
-                await application.updater.stop()
-                await application.stop()
+            # Use the Application's run_polling method directly
+            logger.info("Starting polling with drop_pending_updates=True")
+            await application.run_polling(drop_pending_updates=True)
             
             # This line will only be reached when polling is stopped
             logger.info("Polling has stopped")
