@@ -10,6 +10,7 @@ from quart import Quart, request
 import uvicorn
 import os
 import aiohttp
+import re
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -141,8 +142,14 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if len(args) < 2:
             logger.warning(f"Insufficient arguments: {args}")
             await update.message.reply_text(
-                "❌ Usage: /assign employee1,employee2 <task> [minutes]\n"
-                "Example: /assign rehan,shameem Check inventory 30"
+                "❌ Usage: /assign employee1,employee2 <task> [time]\n\n"
+                "Time can be specified as:\n"
+                "- Minutes: 30 or 30m\n"
+                "- Hours: 2h\n"
+                "- Days: 1d\n\n"
+                "Examples:\n"
+                "/assign rehan,shameem Check inventory 30m\n"
+                "/assign rehan Daily report 1d"
             )
             return
         
@@ -156,13 +163,36 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         
-        # Parse task and minutes
-        if len(args) > 2 and args[-1].isdigit():
-            task = ' '.join(args[1:-1])
-            minutes = int(args[-1])
-        else:
-            task = ' '.join(args[1:])
-            minutes = 30  # default reminder interval
+        # Parse task and time units
+        task_parts = args[1:]
+        minutes = 60  # default reminder interval (60 minutes)
+        
+        # Check if the last argument contains a time unit
+        if len(task_parts) > 0:
+            last_part = task_parts[-1].lower()
+            
+            # Check for time unit patterns like 30m, 2h, 1d
+            time_match = re.match(r'^(\d+)([mhd])$', last_part)
+            if time_match:
+                value, unit = time_match.groups()
+                value = int(value)
+                
+                if unit == 'm':  # minutes
+                    minutes = value
+                elif unit == 'h':  # hours
+                    minutes = value * 60
+                elif unit == 'd':  # days
+                    minutes = value * 60 * 24
+                    
+                # Remove the time unit from the task description
+                task_parts = task_parts[:-1]
+            # Check if the last part is just a number (assume minutes)
+            elif last_part.isdigit():
+                minutes = int(last_part)
+                task_parts = task_parts[:-1]
+                
+        # Join the remaining parts as the task description
+        task = ' '.join(task_parts)
         
         # Get a unique task ID that doesn't exist in the database
         global task_counter
@@ -232,11 +262,28 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 # Handle non-timezone aware datetime objects
                 created_time = created_time.strftime('%I:%M %p')
             
+            # Format reminder interval in a user-friendly way
+            reminder_text = ""
+            if minutes < 60:
+                reminder_text = f"Every {minutes} minutes"
+            elif minutes < 60 * 24:
+                hours = minutes / 60
+                if hours == 1:
+                    reminder_text = "Every hour"
+                else:
+                    reminder_text = f"Every {int(hours)} hours"
+            else:
+                days = minutes / (60 * 24)
+                if days == 1:
+                    reminder_text = "Every day"
+                else:
+                    reminder_text = f"Every {int(days)} days"
+                    
             message = (
                 f"📋 New Task #{task_id}\n\n"
                 f"Task: {task}\n"
                 f"Created: {created_time} (UAE)\n"
-                f"Reminder: Every {minutes} minutes\n\n"
+                f"Reminder: {reminder_text}\n\n"
                 f"Use:\n"
                 f"• /inquire {task_id} - Ask questions\n"
                 f"• /taskdone {task_id} - Mark as completed"
@@ -273,21 +320,40 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Traceback: {traceback.format_exc()}")
         await update.message.reply_text(f"❌ Failed to assign task: {e}")
 
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /help command to display available commands"""
+    help_text = (
+        "📋 Available Commands:\n\n"
+        "/assign - Assign tasks (single/group)\n"
+        "/done - View & manage active tasks\n"
+        "/clarify - Add details to tasks\n"
+        "/broadcast - Send custom message to all\n"
+        "/list_employees - View all employees\n"
+    )
+    await update.message.reply_text(help_text)
+
 async def done_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /done command to view active tasks"""
     try:
         chat_id = str(update.message.chat_id)
         
+        # Check if a task_id was provided to mark a task as done
+        args = context.args
+        if args and args[0].isdigit():
+            task_id = int(args[0])
+            # Call taskdone_command to handle the task completion
+            return await taskdone_command(update, context)
+        
         # Get active tasks from database
         active_tasks = db.get_active_tasks()
         
         if not active_tasks:
-            await update.message.reply_text("📝 No active tasks at the moment.")
+            await update.message.reply_text("📝 No active tasks at the moment.\n\nUse /done <task_id> to mark a task as completed.")
             return
             
         # Format tasks based on user role
         if chat_id == YOUR_ID:  # Admin view
-            message = "📋 Active Tasks:\n\n"
+            message = "📋 Active Tasks:\n\nUse /done <task_id> to mark a task as completed.\n\n"
             for task in active_tasks:
                 task_id = task['task_id']
                 assignees = task['employees']
@@ -1302,6 +1368,7 @@ async def main() -> None:
         global application
 
         # Command handlers
+        application.add_handler(CommandHandler("help", help_command))
         application.add_handler(CommandHandler("start", start))
         application.add_handler(CommandHandler("assign", assign_task))
         application.add_handler(CommandHandler("done", done_command))
