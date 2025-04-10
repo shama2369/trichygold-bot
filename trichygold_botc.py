@@ -778,11 +778,15 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
 async def taskdone_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /taskdone command for employees"""
     chat_id = str(update.message.chat_id)
-    employee_name = get_employee_name(chat_id)
     
-    if not employee_name:
-        await update.message.reply_text("❌ Only registered employees can use this command!")
-        return
+    # Special handling for admin
+    if chat_id == YOUR_ID:
+        employee_name = "Admin"  # Use "Admin" as the name for task completion
+    else:
+        employee_name = get_employee_name(chat_id)
+        if not employee_name:
+            await update.message.reply_text("❌ Only registered employees can use this command!")
+            return
     
     try:
         args = context.args
@@ -801,7 +805,8 @@ async def taskdone_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"❌ Task #{task_id} not found!")
             return
         
-        if employee_name not in task_info['employees']:
+        # Allow admin to mark any task as done, but employees can only mark their own tasks
+        if chat_id != YOUR_ID and employee_name not in task_info['employees']:
             await update.message.reply_text("❌ This task is not assigned to you!")
             return
         
