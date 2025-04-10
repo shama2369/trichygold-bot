@@ -259,7 +259,12 @@ class MongoDB:
         if self.in_memory_mode:
             return [task for task in self.tasks_data if task['status'] == 'active']
         else:
-            return await self.tasks.find({'status': 'active'}).to_list(length=None)
+            # Convert cursor to list manually since to_list might not be available
+            cursor = self.tasks.find({'status': 'active'})
+            result = []
+            async for doc in cursor:
+                result.append(doc)
+            return result
     
     # Inquiry operations
     async def add_inquiry(self, task_id: int, employee: str, message: str) -> Dict:

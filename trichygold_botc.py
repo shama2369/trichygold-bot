@@ -158,9 +158,41 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
             task = ' '.join(args[1:])
             minutes = 30  # default reminder interval
         
+        # Get a unique task ID that doesn't exist in the database
         global task_counter
         task_counter += 1
         task_id = task_counter
+        
+        # Check if this task_id already exists and find a new one if needed
+        existing_task = await db.get_task(task_id)
+        if existing_task:
+            # Find the highest task_id in the database and use that + 1
+            try:
+                # Try to get the highest task_id from the database
+                if not db.in_memory_mode:
+                    # Use aggregation to find the highest task_id
+                    cursor = db.tasks.aggregate([{"$sort": {"task_id": -1}}, {"$limit": 1}])
+                    highest_task = await cursor.to_list(length=1)
+                    if highest_task and len(highest_task) > 0:
+                        task_id = highest_task[0]["task_id"] + 1
+                        task_counter = task_id  # Update the counter for future use
+                    else:
+                        # If no tasks in database, start from a higher number to avoid conflicts
+                        task_id = max(100, task_counter + 10)
+                        task_counter = task_id
+                else:
+                    # In memory mode, find the highest task_id
+                    highest_id = 0
+                    for task in db.tasks_data:
+                        if task["task_id"] > highest_id:
+                            highest_id = task["task_id"]
+                    task_id = highest_id + 1
+                    task_counter = task_id
+            except Exception as e:
+                logger.warning(f"Error finding highest task_id: {e}")
+                # Use a random high number to avoid conflicts
+                task_id = task_counter + 100
+                task_counter = task_id
         
         # Store task in database
         task_doc = await db.create_task(task_id, task, employees, minutes)
