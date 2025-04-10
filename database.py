@@ -65,7 +65,18 @@ class MongoDB:
             if not mongodb_uri:
                 logger.error("MONGODB_URI environment variable not set")
                 self.connection_error = "MONGODB_URI environment variable not set"
-                self.connection_status["error"] = self.connection_error
+                self.in_memory_mode = True
+                
+                # Update connection status
+                self.connection_status = {
+                    "status": "error",
+                    "last_attempt": datetime.now(),
+                    "error": self.connection_error,
+                    "server_info": None,
+                    "reconnect_attempts": self.reconnect_attempts
+                }
+                
+                logger.warning("MONGODB_URI not set. Falling back to in-memory storage mode.")
                 return False
             
             # Properly encode username and password in the URI
@@ -161,18 +172,36 @@ class MongoDB:
                 error_msg = f"Failed to connect to MongoDB: {str(e)}"
                 logger.error(error_msg)
                 self.connection_error = error_msg
-                self.connection_status["status"] = "error"
-                self.connection_status["error"] = error_msg
                 self.in_memory_mode = True
+                
+                # Update connection status
+                self.connection_status = {
+                    "status": "error",
+                    "last_attempt": self.last_connection_attempt,
+                    "error": error_msg,
+                    "server_info": None,
+                    "reconnect_attempts": self.reconnect_attempts
+                }
+                
+                logger.warning("Falling back to in-memory storage mode")
                 return False
                 
         except Exception as e:
             error_msg = f"Unexpected error connecting to MongoDB: {str(e)}"
             logger.error(error_msg)
             self.connection_error = error_msg
-            self.connection_status["status"] = "error"
-            self.connection_status["error"] = error_msg
             self.in_memory_mode = True
+            
+            # Update connection status
+            self.connection_status = {
+                "status": "error",
+                "last_attempt": self.last_connection_attempt,
+                "error": error_msg,
+                "server_info": None,
+                "reconnect_attempts": self.reconnect_attempts
+            }
+            
+            logger.warning("Falling back to in-memory storage mode due to unexpected error")
             return False
             
     # Task operations

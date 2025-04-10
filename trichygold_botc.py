@@ -165,6 +165,10 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Store task in database
         task_doc = await db.create_task(task_id, task, employees, minutes)
         
+        # Also store in global TASKS dictionary for backward compatibility
+        global TASKS
+        TASKS[task_id] = task_doc
+        
         # Send task to each employee
         for employee in employees:
             chat_id = EMPLOYEES[employee]
@@ -178,7 +182,12 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             # Format time in Dubai timezone
             dubai_tz = pytz.timezone('Asia/Dubai')
-            created_time = task_doc['created_at'].astimezone(dubai_tz).strftime('%I:%M %p')
+            created_time = task_doc['created_at']
+            if hasattr(created_time, 'astimezone'):
+                created_time = created_time.astimezone(dubai_tz).strftime('%I:%M %p')
+            else:
+                # Handle non-timezone aware datetime objects
+                created_time = created_time.strftime('%I:%M %p')
             
             message = (
                 f"📋 New Task #{task_id}\n\n"
