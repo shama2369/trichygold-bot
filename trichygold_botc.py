@@ -172,9 +172,14 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if not db.in_memory_mode:
                     # Use aggregation to find the highest task_id
                     cursor = db.tasks.aggregate([{"$sort": {"task_id": -1}}, {"$limit": 1}])
-                    highest_task = await cursor.to_list(length=1)
-                    if highest_task and len(highest_task) > 0:
-                        task_id = highest_task[0]["task_id"] + 1
+                    # Process cursor without using to_list
+                    highest_task = None
+                    for doc in cursor:
+                        highest_task = doc
+                        break
+                    
+                    if highest_task:
+                        task_id = highest_task["task_id"] + 1
                         task_counter = task_id  # Update the counter for future use
                     else:
                         # If no tasks in database, start from a higher number to avoid conflicts

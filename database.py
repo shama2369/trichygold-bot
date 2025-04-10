@@ -259,10 +259,11 @@ class MongoDB:
         if self.in_memory_mode:
             return [task for task in self.tasks_data if task['status'] == 'active']
         else:
-            # Convert cursor to list manually since to_list might not be available
+            # Convert cursor to list manually without using async for
             cursor = self.tasks.find({'status': 'active'})
             result = []
-            async for doc in cursor:
+            # Use a regular for loop instead of async for
+            for doc in cursor:
                 result.append(doc)
             return result
     
