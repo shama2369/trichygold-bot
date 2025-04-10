@@ -974,14 +974,32 @@ async def send_task_reminder(context: ContextTypes.DEFAULT_TYPE):
 async def log_all_updates(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Log all incoming updates for debugging purposes"""
     try:
+        logger.info(f"Received update with ID: {update.update_id}")
+        
         if update.message:
-            logger.info(f"Received message update: {update.message.text} from user {update.message.from_user.id}")
+            logger.info(f"MESSAGE: {update.message.text} from user {update.message.from_user.id} ({update.message.from_user.username})")
+            
+            # Check if it's a command and log it specially
+            if update.message.text and update.message.text.startswith('/'):
+                logger.info(f"COMMAND DETECTED: {update.message.text}")
+                
+                # Extract command name and arguments
+                command_parts = update.message.text.split()
+                command = command_parts[0].lower()
+                args = command_parts[1:] if len(command_parts) > 1 else []
+                
+                logger.info(f"Command: {command}, Args: {args}")
+                
         elif update.callback_query:
-            logger.info(f"Received callback query: {update.callback_query.data} from user {update.callback_query.from_user.id}")
+            logger.info(f"CALLBACK: {update.callback_query.data} from user {update.callback_query.from_user.id}")
+        elif update.edited_message:
+            logger.info(f"EDITED: {update.edited_message.text} from user {update.edited_message.from_user.id}")
         else:
-            logger.info(f"Received update of type: {update}")
+            logger.info(f"OTHER UPDATE TYPE: {update}")
+            
     except Exception as e:
         logger.error(f"Error in log_all_updates: {e}")
+        logger.error(f"Update object: {update}")
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle errors in the telegram bot."""
