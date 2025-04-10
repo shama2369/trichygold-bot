@@ -191,8 +191,9 @@ class MongoDB:
         if self.in_memory_mode:
             self.tasks_data.append(task_doc)
         else:
-            await self.tasks.insert_one(task_doc)
-            
+            # Use insert_one without await - pymongo operations are not coroutines
+            self.tasks.insert_one(task_doc)
+        
         return task_doc
     
     async def get_task(self, task_id: int) -> Optional[Dict]:
@@ -221,7 +222,8 @@ class MongoDB:
                     'completed_by': completed_by
                 }
             }
-            result = await self.tasks.update_one({'task_id': task_id}, update)
+            # Don't use await with update_one
+            result = self.tasks.update_one({'task_id': task_id}, update)
             return result.modified_count > 0
     
     async def get_active_tasks(self) -> List[Dict]:
@@ -249,11 +251,12 @@ class MongoDB:
                     task['inquiries'].append(inquiry)
                     break
         else:
-            await self.inquiries.insert_one(inquiry)
-            # Update task with inquiry reference
-            await self.tasks.update_one(
+            # Use insert_one without await
+            result = self.inquiries.insert_one(inquiry)
+            # Update task with inquiry reference - don't use await
+            self.tasks.update_one(
                 {'task_id': task_id},
-                {'$push': {'inquiries': inquiry['_id']}}
+                {'$push': {'inquiries': result.inserted_id}}
             )
             
         return inquiry
@@ -274,8 +277,8 @@ class MongoDB:
                     task['clarifications'].append(clarification)
                     break
         else:
-            # Update task with clarification
-            await self.tasks.update_one(
+            # Update task with clarification - don't use await
+            self.tasks.update_one(
                 {'task_id': task_id},
                 {'$push': {'clarifications': clarification}}
             )
@@ -294,7 +297,8 @@ class MongoDB:
         if self.in_memory_mode:
             self.notifications_data.append(notification)
         else:
-            await self.notifications.insert_one(notification)
+            # Use insert_one without await
+            self.notifications.insert_one(notification)
             
         return notification
     
@@ -372,7 +376,8 @@ class MongoDB:
         if self.in_memory_mode:
             self.messages_data.append(message)
         else:
-            await self.messages.insert_one(message)
+            # Use insert_one without await
+            self.messages.insert_one(message)
             
         return message
 
