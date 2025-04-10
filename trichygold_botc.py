@@ -1308,8 +1308,9 @@ async def main() -> None:
         application.add_handler(CommandHandler("dbmigrate", db_migrate_command))
         
         # Media message handler for clarifications, inquiries, and broadcasts
+        # Only handle non-command messages
         application.add_handler(MessageHandler(
-            filters.TEXT | filters.VOICE | filters.Document.ALL | filters.PHOTO,
+            (filters.TEXT | filters.VOICE | filters.Document.ALL | filters.PHOTO) & ~filters.COMMAND,
             handle_media_message
         ))
         
