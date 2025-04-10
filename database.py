@@ -226,16 +226,19 @@ class MongoDB:
         
         return task_doc
     
-    async def get_task(self, task_id: int) -> Optional[Dict]:
+    def get_task(self, task_id: int) -> Optional[Dict]:
+        """Get a task by its ID from database or in-memory storage"""
         if self.in_memory_mode:
             for task in self.tasks_data:
                 if task['task_id'] == task_id:
                     return task
             return None
         else:
-            return await self.tasks.find_one({'task_id': task_id})
+            # MongoDB operations are not coroutines, so no await needed
+            return self.tasks.find_one({'task_id': task_id})
     
-    async def update_task_status(self, task_id: int, status: str, completed_by: str = None) -> bool:
+    def update_task_status(self, task_id: int, status: str, completed_by: str = None) -> bool:
+        """Update a task's status in database or in-memory storage"""
         if self.in_memory_mode:
             for task in self.tasks_data:
                 if task['task_id'] == task_id:
@@ -256,14 +259,15 @@ class MongoDB:
             result = self.tasks.update_one({'task_id': task_id}, update)
             return result.modified_count > 0
     
-    async def get_active_tasks(self) -> List[Dict]:
+    def get_active_tasks(self) -> List[Dict]:
+        """Get all active tasks from database or in-memory storage"""
         if self.in_memory_mode:
             return [task for task in self.tasks_data if task['status'] == 'active']
         else:
-            # Convert cursor to list manually without using async for
+            # Convert cursor to list manually
             cursor = self.tasks.find({'status': 'active'})
             result = []
-            # Use a regular for loop instead of async for
+            # Use a regular for loop
             for doc in cursor:
                 result.append(doc)
             return result

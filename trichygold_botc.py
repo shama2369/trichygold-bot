@@ -164,7 +164,7 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
         task_id = task_counter
         
         # Check if this task_id already exists and find a new one if needed
-        existing_task = await db.get_task(task_id)
+        existing_task = db.get_task(task_id)
         if existing_task:
             # Find the highest task_id in the database and use that + 1
             try:
@@ -270,7 +270,7 @@ async def done_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         chat_id = str(update.message.chat_id)
         
         # Get active tasks from database
-        active_tasks = await db.get_active_tasks()
+        active_tasks = db.get_active_tasks()
         
         if not active_tasks:
             await update.message.reply_text("📝 No active tasks at the moment.")
@@ -719,7 +719,7 @@ async def taskdone_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         task_id = int(args[0])
         
         # Get task from database
-        task_info = await db.get_task(task_id)
+        task_info = db.get_task(task_id)
         
         if not task_info:
             await update.message.reply_text(f"❌ Task #{task_id} not found!")
@@ -733,15 +733,15 @@ async def taskdone_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"❌ Task #{task_id} is already completed!")
             return
         
-        # Mark task as completed in database
-        success = await db.update_task_status(task_id, 'completed', employee_name)
+        # Update task status in database
+        success = db.update_task_status(task_id, 'completed', employee_name)
         
         if not success:
             await update.message.reply_text(f"❌ Failed to update task status. Please try again.")
             return
         
-        # Get updated task for notification
-        updated_task = await db.get_task(task_id)
+        # Get updated task info for notification
+        updated_task = db.get_task(task_id)
         completed_time = updated_task.get('completed_at', datetime.now()).strftime('%I:%M %p')
         
         # Notify admin
@@ -1015,7 +1015,7 @@ async def send_task_reminder(context: ContextTypes.DEFAULT_TYPE):
     
     try:
         # Get task from database
-        task_info = await db.get_task(task_id)
+        task_info = db.get_task(task_id)
         
         if task_info and task_info['status'] == 'active':
             message = (
