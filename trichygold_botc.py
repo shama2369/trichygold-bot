@@ -11,6 +11,7 @@ import uvicorn
 import os
 import aiohttp
 import re
+import copy
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -90,41 +91,59 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"Start command received from user {chat_id} ({user_name})")
     
     if chat_id == YOUR_ID:
+        # Admin welcome message
         welcome_message = (
             f"👋 Welcome to TrichyGold Task Manager!\n\n"
             f"🔑 You are logged in as ADMIN\n"
             f"Your Chat ID: {chat_id}\n\n"
-            f"Available Commands:\n"
-            f"/assign - Assign tasks (single/group)\n"
-            f"/done - View & manage active tasks\n"
-            f"/clarify - Add details to tasks\n"
-            f"/broadcast - Send custom message to all\n"
-            f"/list_employees - View all employees\n"
-            f"/help - Show this message"
+            f"Select a command below:"
         )
+        
+        # Create buttons for admin commands
+        keyboard = [
+            [InlineKeyboardButton("📝 Assign Tasks", callback_data="cmd_assign"),
+             InlineKeyboardButton("📃 View Tasks", callback_data="cmd_done")],
+            [InlineKeyboardButton("💬 Clarify Tasks", callback_data="cmd_clarify"),
+             InlineKeyboardButton("📢 Broadcast", callback_data="cmd_broadcast")],
+            [InlineKeyboardButton("👤 List Employees", callback_data="cmd_list_employees"),
+             InlineKeyboardButton("❓ Help", callback_data="cmd_help")]
+        ]
     else:
         employee_name = get_employee_name(chat_id)
         if employee_name:
+            # Employee welcome message
             welcome_message = (
                 f"👋 Welcome {user_name}!\n\n"
                 f"You are registered as: {employee_name}\n"
                 f"Your Chat ID: {chat_id}\n\n"
-                f"Available Commands:\n"
-                f"/inquire - Ask questions about tasks\n"
-                f"/taskdone - Mark tasks as completed\n"
-                f"/notify - Send notice to admin\n"
-                f"/mytasks - View your active tasks\n"
-                f"/help - Show this message"
+                f"Select a command below:"
             )
+            
+            # Create buttons for employee commands
+            keyboard = [
+                [InlineKeyboardButton("❓ Ask Questions", callback_data="cmd_inquire"),
+                 InlineKeyboardButton("✅ Mark Tasks Done", callback_data="cmd_taskdone")],
+                [InlineKeyboardButton("📢 Notify Admin", callback_data="cmd_notify"),
+                 InlineKeyboardButton("📃 My Tasks", callback_data="cmd_mytasks")],
+                [InlineKeyboardButton("❓ Help", callback_data="cmd_help")]
+            ]
         else:
+            # Unregistered user welcome message
             welcome_message = (
                 f"👋 Welcome {user_name}!\n\n"
                 f"⚠️ You are not registered.\n"
                 f"Your Chat ID: {chat_id}\n\n"
                 f"Please contact admin to get registered."
             )
+            # No buttons for unregistered users
+            keyboard = []
     
-    await update.message.reply_text(welcome_message)
+    # Create reply markup if there are buttons
+    if keyboard:
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(welcome_message, reply_markup=reply_markup)
+    else:
+        await update.message.reply_text(welcome_message)
 
 async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /assign command for task assignment"""
@@ -777,7 +796,9 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
     try:
         query = update.callback_query
         data = query.data
+        chat_id = str(update.callback_query.from_user.id)
         
+        # Handle task action buttons
         if data.startswith('taskdone_'):
             task_id = int(data.split('_')[1])
             await query.answer()
@@ -786,7 +807,6 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
             context.args = [str(task_id)]
             
             # Special handling for admin
-            chat_id = str(update.callback_query.from_user.id)
             if chat_id == YOUR_ID:
                 # Admin is completing a task directly
                 task_info = db.get_task(task_id)
@@ -838,6 +858,38 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
                 f"• Voice message\n"
                 f"• Files/documents"
             )
+        # Handle command buttons from welcome message
+        elif data.startswith('cmd_'):
+            command = data.replace('cmd_', '/')
+            await query.answer(f"Running command: {command}")
+            
+            # Create a mock message to simulate the command
+            mock_message = copy.deepcopy(query.message)
+            mock_message.text = command
+            mock_message.from_user = query.from_user
+            mock_update = Update(update.update_id, message=mock_message)
+            
+            # Execute the appropriate command
+            if data == 'cmd_assign':
+                await query.message.reply_text("Use /assign employee1,employee2 <task> [time]\n\nExample: /assign rehan,shameem Check inventory 30m")
+            elif data == 'cmd_done':
+                await done_command(mock_update, context)
+            elif data == 'cmd_clarify':
+                await query.message.reply_text("Use /clarify <task_id> <additional details>")
+            elif data == 'cmd_broadcast':
+                await query.message.reply_text("Use /broadcast <message>")
+            elif data == 'cmd_list_employees':
+                await list_employees_command(mock_update, context)
+            elif data == 'cmd_help':
+                await help_command(mock_update, context)
+            elif data == 'cmd_inquire':
+                await query.message.reply_text("Use /inquire <task_id> <your question>")
+            elif data == 'cmd_taskdone':
+                await taskdone_command(mock_update, context)
+            elif data == 'cmd_notify':
+                await query.message.reply_text("Use /notify <message>")
+            elif data == 'cmd_mytasks':
+                await mytasks_command(mock_update, context)
         elif data == 'add_employee':
             await query.answer()
             await query.message.reply_text(
