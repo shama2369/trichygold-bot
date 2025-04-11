@@ -102,7 +102,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Create buttons for admin commands
         keyboard = [
             [InlineKeyboardButton("📝 Assign Tasks", callback_data="cmd_assign"),
-             InlineKeyboardButton("📃 View Tasks", callback_data="cmd_done")],
+             InlineKeyboardButton("📃 View Tasks", callback_data="cmd_tasks")],
             [InlineKeyboardButton("💬 Clarify Tasks", callback_data="cmd_clarify"),
              InlineKeyboardButton("📢 Broadcast", callback_data="cmd_broadcast")],
             [InlineKeyboardButton("👤 List Employees", callback_data="cmd_list_employees"),
@@ -122,9 +122,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Create buttons for employee commands
             keyboard = [
                 [InlineKeyboardButton("❓ Ask Questions", callback_data="cmd_inquire"),
-                 InlineKeyboardButton("✅ Mark Tasks Done", callback_data="cmd_taskdone")],
+                 InlineKeyboardButton("✅ Mark Tasks Done", callback_data="cmd_tasks")],
                 [InlineKeyboardButton("📢 Notify Admin", callback_data="cmd_notify"),
-                 InlineKeyboardButton("📃 My Tasks", callback_data="cmd_mytasks")],
+                 InlineKeyboardButton("📃 My Tasks", callback_data="cmd_tasks")],
                 [InlineKeyboardButton("❓ Help", callback_data="cmd_help")]
             ]
         else:
@@ -1003,14 +1003,22 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
             # Execute the appropriate command directly
             if data == 'cmd_assign':
                 await query.message.reply_text("Use /assign employee1,employee2 <task> [time]\n\nExample: /assign rehan,shameem Check inventory 30m")
-            elif data == 'cmd_done':
+            elif data == 'cmd_done' or data == 'cmd_tasks':
                 # For commands that show task lists, execute them directly
                 chat_id = str(query.from_user.id)
                 # Set empty args for the context
                 context.args = []
-                # Just use the query message to reply with task list
-                await query.message.reply_text("📋 Active Tasks:")
-                await send_active_tasks(query.message.chat_id, context)
+                
+                # Create a mock update object to pass to tasks_command
+                mock_update = Update(update_id=update.update_id, callback_query=None)
+                mock_update._unfreeze()
+                mock_update.message = query.message
+                mock_update.message.from_user = query.from_user
+                mock_update.message.chat_id = query.message.chat_id
+                mock_update._freeze()
+                
+                # Execute the tasks_command directly
+                await tasks_command(mock_update, context)
             elif data == 'cmd_clarify':
                 await query.message.reply_text("Use /clarify <task_id> <additional details>")
             elif data == 'cmd_broadcast':
@@ -1083,79 +1091,29 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
             elif data == 'cmd_inquire':
                 await query.message.reply_text("Use /inquire <task_id> <your question>")
             elif data == 'cmd_taskdone':
-                # Just use the query message to reply with task list
-                chat_id = str(query.from_user.id)
-                employee_name = get_employee_name(chat_id)
+                # Create a mock update object to pass to tasks_command
+                mock_update = Update(update_id=update.update_id, callback_query=None)
+                mock_update._unfreeze()
+                mock_update.message = query.message
+                mock_update.message.from_user = query.from_user
+                mock_update.message.chat_id = query.message.chat_id
+                mock_update._freeze()
                 
-                if not employee_name:
-                    await query.message.reply_text("❌ You are not registered as an employee.")
-                    return
-                
-                # Get tasks assigned to this employee
-                tasks = db.get_employee_tasks(chat_id)
-                active_tasks = [t for t in tasks if t['status'] == 'active']
-                
-                if not active_tasks:
-                    await query.message.reply_text("📋 You have no active tasks.")
-                    return
-                
-                # Display active tasks with buttons
-                for task in active_tasks:
-                    task_id = task['task_id']
-                    task_text = task['task']
-                    assigned_time = task.get('assigned_at', 'Unknown')
-                    if isinstance(assigned_time, datetime):
-                        assigned_time = assigned_time.strftime('%I:%M %p')
-                    
-                    # Create buttons for task actions
-                    keyboard = [
-                        [InlineKeyboardButton("✅ Mark as Done", callback_data=f"taskdone_{task_id}"),
-                         InlineKeyboardButton("❓ Ask Question", callback_data=f"inquire_{task_id}")]
-                    ]
-                    reply_markup = InlineKeyboardMarkup(keyboard)
-                    
-                    await query.message.reply_text(
-                        f"📌 Task #{task_id}\n"
-                        f"📝 {task_text}\n"
-                        f"⏰ Assigned: {assigned_time} (UAE)",
-                        reply_markup=reply_markup
-                    )
+                # Execute the tasks_command directly
+                await tasks_command(mock_update, context)
             elif data == 'cmd_notify':
                 await query.message.reply_text("Use /notify <message>")
             elif data == 'cmd_mytasks':
-                # Just use the query message to reply with task list
-                chat_id = str(query.from_user.id)
-                employee_name = get_employee_name(chat_id)
+                # Create a mock update object to pass to tasks_command
+                mock_update = Update(update_id=update.update_id, callback_query=None)
+                mock_update._unfreeze()
+                mock_update.message = query.message
+                mock_update.message.from_user = query.from_user
+                mock_update.message.chat_id = query.message.chat_id
+                mock_update._freeze()
                 
-                if not employee_name:
-                    await query.message.reply_text("❌ You are not registered as an employee.")
-                    return
-                
-                # Get tasks assigned to this employee
-                tasks = db.get_employee_tasks(chat_id)
-                
-                if not tasks:
-                    await query.message.reply_text("📋 You have no tasks assigned.")
-                    return
-                
-                # Group tasks by status
-                active_tasks = [t for t in tasks if t['status'] == 'active']
-                completed_tasks = [t for t in tasks if t['status'] == 'completed']
-                
-                # Display active tasks
-                if active_tasks:
-                    active_task_list = "\n\n".join([f"📌 Task #{t['task_id']}\n📝 {t['task']}" for t in active_tasks])
-                    await query.message.reply_text(f"📋 Your Active Tasks:\n\n{active_task_list}")
-                else:
-                    await query.message.reply_text("📋 You have no active tasks.")
-                
-                # Display completed tasks (last 5)
-                if completed_tasks:
-                    # Sort by completion time (newest first) and take last 5
-                    completed_tasks.sort(key=lambda x: x.get('completed_at', datetime.min), reverse=True)
-                    recent_completed = completed_tasks[:5]
-                    completed_task_list = "\n\n".join([f"✅ Task #{t['task_id']}\n📝 {t['task']}" for t in recent_completed])
-                    await query.message.reply_text(f"📋 Your Recently Completed Tasks:\n\n{completed_task_list}")
+                # Execute the tasks_command directly
+                await tasks_command(mock_update, context)
         elif data == 'add_employee':
             await query.answer()
             await query.message.reply_text(
