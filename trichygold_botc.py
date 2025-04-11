@@ -304,10 +304,9 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 logger.error(f"Failed to send task to {employee}: {e}")
         
         # Use the same reminder_text format as in the employee message
-        # Create buttons for admin task management
+        # Create buttons for admin task management - only include inquire button
         admin_keyboard = [
-            [InlineKeyboardButton("✅ Mark Done", callback_data=f"taskdone_{task_id}"),
-             InlineKeyboardButton("❓ Ask Question", callback_data=f"inquire_{task_id}")]
+            [InlineKeyboardButton("❓ Ask Question", callback_data=f"inquire_{task_id}")]
         ]
         admin_reply_markup = InlineKeyboardMarkup(admin_keyboard)
         
@@ -366,16 +365,34 @@ async def done_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
         # Format tasks based on user role
         if chat_id == YOUR_ID:  # Admin view
-            message = "📋 Active Tasks:\n\nUse /done <task_id> to mark a task as completed.\n\n"
+            message = "📋 Active Tasks:\n\nSelect a task to manage:\n\n"
+            
+            # Create a button for each task for the admin
             for task in active_tasks:
                 task_id = task['task_id']
                 assignees = task['employees']
-                message += (
+                task_desc = task['task']
+                
+                # Format the task information
+                task_message = (
                     f"Task #{task_id}:\n"
-                    f"• Description: {task['task']}\n"
+                    f"• Description: {task_desc}\n"
                     f"• Assigned to: {', '.join(assignees)}\n"
-                    f"• Time allocated: {task.get('reminder_interval', 'Not specified')} minutes\n\n"
+                    f"• Time allocated: {task.get('reminder_interval', 'Not specified')} minutes\n"
                 )
+                
+                # Create buttons for task actions
+                keyboard = [
+                    [InlineKeyboardButton("✅ Mark as Done", callback_data=f"taskdone_{task_id}"),
+                     InlineKeyboardButton("❓ Ask Question", callback_data=f"inquire_{task_id}")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                # Send each task as a separate message with buttons
+                await update.message.reply_text(task_message, reply_markup=reply_markup)
+            
+            # Set message to empty since we've already sent all tasks
+            message = ""
         else:  # Employee view
             employee_name = get_employee_name(chat_id)
             if not employee_name:
@@ -767,7 +784,49 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
             
             # Create a mock update with the task ID as an argument
             context.args = [str(task_id)]
-            await taskdone_command(update, context)
+            
+            # Special handling for admin
+            chat_id = str(update.callback_query.from_user.id)
+            if chat_id == YOUR_ID:
+                # Admin is completing a task directly
+                task_info = db.get_task(task_id)
+                
+                if not task_info:
+                    await query.message.reply_text(f"❌ Task #{task_id} not found!")
+                    return
+                
+                if task_info['status'] != 'active':
+                    await query.message.reply_text(f"❌ Task #{task_id} is already completed!")
+                    return
+                
+                # Update task status in database
+                success = db.update_task_status(task_id, 'completed', "Admin")
+                
+                if not success:
+                    await query.message.reply_text(f"❌ Failed to update task status. Please try again.")
+                    return
+                
+                # Get updated task info for notification
+                updated_task = db.get_task(task_id)
+                completed_time = updated_task.get('completed_at', datetime.now()).strftime('%I:%M %p')
+                
+                await query.message.reply_text(
+                    f"✅ Task #{task_id} marked as completed by Admin!\n"
+                    f"Task: {task_info['task']}\n"
+                    f"Completed at: {completed_time} (UAE)"
+                )
+                
+                # Edit the original message to show it's completed
+                try:
+                    await query.message.edit_text(
+                        query.message.text + "\n\n✅ COMPLETED",
+                        reply_markup=None
+                    )
+                except Exception as e:
+                    logger.error(f"Error editing message: {e}")
+            else:
+                # Regular employee using taskdone
+                await taskdone_command(update, context)
         elif data.startswith('inquire_'):
             task_id = int(data.split('_')[1])
             await query.answer()
@@ -794,9 +853,10 @@ async def taskdone_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /taskdone command for employees"""
     chat_id = str(update.message.chat_id)
     
-    # Special handling for admin
+    # Special handling for admin - redirect to /done command
     if chat_id == YOUR_ID:
-        employee_name = "Admin"  # Use "Admin" as the name for task completion
+        await update.message.reply_text("📝 Please use /done command to view and manage all tasks.")
+        return
     else:
         employee_name = get_employee_name(chat_id)
         if not employee_name:
@@ -815,45 +875,27 @@ async def taskdone_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text("📝 No active tasks at the moment.")
                 return
                 
-            # Filter tasks for this employee if not admin
-            if chat_id != YOUR_ID:
-                employee_tasks = [task for task in active_tasks if employee_name in task['employees']]
+            # Filter tasks for this employee
+            employee_tasks = [task for task in active_tasks if employee_name in task['employees']]
+            
+            if not employee_tasks:
+                await update.message.reply_text("📝 You have no active tasks at the moment.")
+                return
                 
-                if not employee_tasks:
-                    await update.message.reply_text("📝 You have no active tasks at the moment.")
-                    return
-                    
-                message = "📋 Your Active Tasks:\n\nSelect a task to mark as completed:\n\n"
-                
-                # Create a button for each task
-                keyboard = []
-                for task in employee_tasks:
-                    task_id = task['task_id']
-                    task_desc = task['task']
-                    # Truncate long task descriptions
-                    if len(task_desc) > 30:
-                        task_desc = task_desc[:27] + "..."
-                    keyboard.append([InlineKeyboardButton(f"Task #{task_id}: {task_desc}", callback_data=f"taskdone_{task_id}")])
-                
-                reply_markup = InlineKeyboardMarkup(keyboard)
-                await update.message.reply_text(message, reply_markup=reply_markup)
-            else:
-                # Admin view of all tasks
-                message = "📋 All Active Tasks:\n\nSelect a task to mark as completed:\n\n"
-                
-                # Create a button for each task
-                keyboard = []
-                for task in active_tasks:
-                    task_id = task['task_id']
-                    task_desc = task['task']
-                    assignees = ", ".join(task['employees'])
-                    # Truncate long task descriptions
-                    if len(task_desc) > 25:
-                        task_desc = task_desc[:22] + "..."
-                    keyboard.append([InlineKeyboardButton(f"#{task_id}: {task_desc} ({assignees})", callback_data=f"taskdone_{task_id}")])
-                
-                reply_markup = InlineKeyboardMarkup(keyboard)
-                await update.message.reply_text(message, reply_markup=reply_markup)
+            message = "📋 Your Active Tasks:\n\nSelect a task to mark as completed:\n\n"
+            
+            # Create a button for each task
+            keyboard = []
+            for task in employee_tasks:
+                task_id = task['task_id']
+                task_desc = task['task']
+                # Truncate long task descriptions
+                if len(task_desc) > 30:
+                    task_desc = task_desc[:27] + "..."
+                keyboard.append([InlineKeyboardButton(f"Task #{task_id}: {task_desc}", callback_data=f"taskdone_{task_id}")])
+            
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text(message, reply_markup=reply_markup)
             
             return
         
