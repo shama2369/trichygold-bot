@@ -282,10 +282,23 @@ class MongoDB:
             # Check if we're using in-memory mode
             if self.in_memory_mode:
                 # Use global EMPLOYEES dictionary (from trichygold_botc.py)
-                from trichygold_botc import EMPLOYEES
-                # Convert the dictionary to a list of employee objects
-                employees = [{'name': name, 'chat_id': chat_id} for name, chat_id in EMPLOYEES.items()]
-                return employees
+                import sys
+                if 'trichygold_botc' in sys.modules:
+                    EMPLOYEES = sys.modules['trichygold_botc'].EMPLOYEES
+                    # Convert the dictionary to a list of employee objects
+                    employees = [{'name': name, 'chat_id': chat_id} for name, chat_id in EMPLOYEES.items()]
+                    logger.info(f"Retrieved {len(employees)} employees from in-memory storage")
+                    return employees
+                else:
+                    # Fallback to direct import if module not in sys.modules
+                    try:
+                        from trichygold_botc import EMPLOYEES
+                        employees = [{'name': name, 'chat_id': chat_id} for name, chat_id in EMPLOYEES.items()]
+                        logger.info(f"Retrieved {len(employees)} employees via direct import")
+                        return employees
+                    except Exception as import_error:
+                        logger.error(f"Could not access EMPLOYEES dictionary: {import_error}")
+                        return []
             else:
                 # Get employees from MongoDB
                 # Assuming we have an 'employees' collection
@@ -293,7 +306,9 @@ class MongoDB:
                     self.employees = self.db.employees
                 
                 cursor = self.employees.find({})
-                return list(cursor)
+                result = list(cursor)
+                logger.info(f"Retrieved {len(result)} employees from MongoDB")
+                return result
         except Exception as e:
             logger.error(f"Error getting employees: {e}")
             return []

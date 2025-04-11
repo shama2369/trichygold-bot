@@ -360,7 +360,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "🔑 *Admin Commands*\n\n"
             "/assign - Assign tasks to employees\n"
             "Format: /assign employee1,employee2 <task> [time]\n\n"
-            "/tasks - View & manage all active tasks\n"
+            "/tasks - View and manage all active tasks\n"
             "Format: /tasks [task_id]\n\n"
             "/clarify - Add details to tasks\n"
             "Format: /clarify <task_id> <details>\n\n"
@@ -998,6 +998,9 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
         # Handle command buttons from welcome message
         elif data.startswith('cmd_'):
             command = data.replace('cmd_', '')
+            # Show "tasks" instead of "done" for the View Tasks button
+            if command == "done":
+                command = "tasks"
             await query.answer(f"Running command: {command}")
             
             # Execute the appropriate command directly
@@ -1065,7 +1068,8 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
                         "🔑 *Admin Commands*\n\n"
                         "/assign - Assign tasks to employees\n"
                         "Format: /assign employee1,employee2 <task> [time]\n\n"
-                        "/done - View & manage active tasks\n\n"
+                        "/tasks - View and manage all active tasks\n"
+                        "Format: /tasks [task_id]\n\n"
                         "/clarify - Add details to tasks\n"
                         "Format: /clarify <task_id> <details>\n\n"
                         "/broadcast - Send message to all employees\n"
@@ -1073,19 +1077,23 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
                         "/list_employees - View all registered employees\n\n"
                         "/task - View tasks assigned to a specific employee\n"
                         "Format: /task <employee_name>\n\n"
-                        "/help - Show this message"
+                        "/help - Show this message\n\n"
+                        "*Legacy Commands* (use /tasks instead):\n"
+                        "/done - Same as /tasks\n"
                     )
                 else:
                     help_text = (
                         "👤 *Employee Commands*\n\n"
+                        "/tasks - View your tasks and mark them as completed\n"
+                        "Format: /tasks [task_id]\n\n"
                         "/inquire - Ask questions about tasks\n"
                         "Format: /inquire <task_id> <question>\n\n"
-                        "/taskdone - Mark tasks as completed\n"
-                        "Format: /taskdone <task_id>\n\n"
                         "/notify - Send notice to admin\n"
                         "Format: /notify <message>\n\n"
-                        "/mytasks - View your active tasks\n\n"
-                        "/help - Show this message"
+                        "/help - Show this message\n\n"
+                        "*Legacy Commands* (use /tasks instead):\n"
+                        "/taskdone - Same as /tasks\n"
+                        "/mytasks - Same as /tasks\n"
                     )
                 await query.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN)
             elif data == 'cmd_inquire':
