@@ -360,7 +360,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "🔑 *Admin Commands*\n\n"
             "/assign - Assign tasks to employees\n"
             "Format: /assign employee1,employee2 <task> [time]\n\n"
-            "/done - View & manage active tasks\n\n"
+            "/tasks - View & manage all active tasks\n"
+            "Format: /tasks [task_id]\n\n"
             "/clarify - Add details to tasks\n"
             "Format: /clarify <task_id> <details>\n\n"
             "/broadcast - Send message to all employees\n"
@@ -368,19 +369,23 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "/list_employees - View all registered employees\n\n"
             "/task - View tasks assigned to a specific employee\n"
             "Format: /task <employee_name>\n\n"
-            "/help - Show this message"
+            "/help - Show this message\n\n"
+            "*Legacy Commands* (use /tasks instead):\n"
+            "/done - Same as /tasks\n"
         )
     else:
         help_text = (
             "👤 *Employee Commands*\n\n"
+            "/tasks - View your tasks and mark them as completed\n"
+            "Format: /tasks [task_id]\n\n"
             "/inquire - Ask questions about tasks\n"
             "Format: /inquire <task_id> <question>\n\n"
-            "/taskdone - Mark tasks as completed\n"
-            "Format: /taskdone <task_id>\n\n"
             "/notify - Send notice to admin\n"
             "Format: /notify <message>\n\n"
-            "/mytasks - View your active tasks\n\n"
-            "/help - Show this message"
+            "/help - Show this message\n\n"
+            "*Legacy Commands* (use /tasks instead):\n"
+            "/taskdone - Same as /tasks\n"
+            "/mytasks - Same as /tasks\n"
         )
     
     await update.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN)
@@ -452,29 +457,122 @@ async def send_active_tasks(chat_id, context):
         logger.error(f"Error in send_active_tasks: {e}")
         await context.bot.send_message(chat_id=chat_id, text="❌ An error occurred while fetching tasks.")
 
-async def done_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /done command to view active tasks"""
+async def tasks_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Unified command to handle viewing and completing tasks for both admin and employees"""
     try:
         chat_id = str(update.message.chat_id)
+        is_admin = (chat_id == YOUR_ID)
+        employee_name = None if is_admin else get_employee_name(chat_id)
+        
+        # If employee is not registered, reject the command
+        if not is_admin and not employee_name:
+            await update.message.reply_text("❌ Only registered employees can use this command!")
+            return
         
         # Check if a task_id was provided to mark a task as done
         args = context.args
         if args and args[0].isdigit():
             task_id = int(args[0])
-            # Call taskdone_command to handle the task completion
-            return await taskdone_command(update, context)
+            # Handle task completion
+            return await handle_task_completion(update, context, task_id, is_admin, employee_name)
         
-        # Only admin can use this command
-        if chat_id != YOUR_ID:
-            await update.message.reply_text("❌ This command is only for admin use.\n\nEmployees should use /taskdone instead.")
-            return
-        
-        await update.message.reply_text("📋 Active Tasks:\n\nSelect a task to manage:")
-        await send_active_tasks(update.message.chat_id, context)
+        # No task ID provided, show active tasks based on user role
+        if is_admin:
+            # Admin sees all active tasks
+            await update.message.reply_text("📋 Active Tasks:\n\nSelect a task to manage:")
+            await send_active_tasks(update.message.chat_id, context)
+        else:
+            # Employee sees only their tasks
+            # Get active tasks from database
+            active_tasks = db.get_active_tasks()
+            
+            # Filter tasks for this employee
+            employee_tasks = [task for task in active_tasks if employee_name in task.get('employees', [])]
+            
+            if not employee_tasks:
+                await update.message.reply_text("📝 You have no active tasks at the moment.")
+                return
+                
+            message = "📋 Your Active Tasks:\n\n"
+            
+            # Display each task with action buttons
+            for task in employee_tasks:
+                task_id = task['task_id']
+                task_desc = task['task']
+                created_at = task.get('created_at', datetime.now()).strftime('%I:%M %p')
+                
+                task_message = (
+                    f"Task #{task_id}:\n"
+                    f"• Description: {task_desc}\n"
+                    f"• Created: {created_at} (UAE)\n\n"
+                )
+                
+                # Add action buttons for each task
+                keyboard = [
+                    [
+                        InlineKeyboardButton("✅ Mark Done", callback_data=f"taskdone_{task_id}"),
+                        InlineKeyboardButton("❓ Ask Question", callback_data=f"inquire_{task_id}")
+                    ]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await update.message.reply_text(task_message, reply_markup=reply_markup)
             
     except Exception as e:
-        logger.error(f"Error in done_command: {e}")
+        logger.error(f"Error in tasks_command: {e}")
         await update.message.reply_text("❌ An error occurred while fetching tasks.")
+
+async def handle_task_completion(update: Update, context: ContextTypes.DEFAULT_TYPE, task_id: int, is_admin: bool, employee_name: str = None):
+    """Handle task completion for both admin and employees"""
+    try:
+        chat_id = str(update.message.chat_id)
+        
+        # Get task from database
+        task_info = db.get_task(task_id)
+        
+        if not task_info:
+            await update.message.reply_text(f"❌ Task #{task_id} not found!")
+            return
+        
+        # Allow admin to mark any task as done, but employees can only mark their own tasks
+        if not is_admin and employee_name not in task_info.get('employees', []):
+            await update.message.reply_text("❌ This task is not assigned to you!")
+            return
+        
+        if task_info.get('status') != 'active':
+            await update.message.reply_text(f"❌ Task #{task_id} is already completed!")
+            return
+        
+        # Update task status in database
+        completer = "Admin" if is_admin else employee_name
+        success = db.update_task_status(task_id, 'completed', completer)
+        
+        if not success:
+            await update.message.reply_text(f"❌ Failed to update task status. Please try again.")
+            return
+        
+        # Get updated task info for notification
+        updated_task = db.get_task(task_id)
+        completed_time = updated_task.get('completed_at', datetime.now()).strftime('%I:%M %p')
+        
+        # Notify admin (if completed by employee)
+        if not is_admin:
+            await context.bot.send_message(
+                chat_id=YOUR_ID,
+                text=f"✅ Task #{task_id} completed by {employee_name}\n"
+                     f"Task: {task_info['task']}\n"
+                     f"Completed at: {completed_time} (UAE)"
+            )
+        
+        await update.message.reply_text(f"✅ Task #{task_id} marked as completed!")
+        
+    except Exception as e:
+        logger.error(f"Error in handle_task_completion: {e}")
+        await update.message.reply_text("❌ Failed to process command. Please try again.")
+
+# Keep the original done_command as a wrapper around tasks_command for backward compatibility
+async def done_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Wrapper around tasks_command for backward compatibility"""
+    return await tasks_command(update, context)
 
 async def clarify_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /clarify command for admin to add details to tasks"""
@@ -1070,97 +1168,12 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
         await query.answer("❌ An error occurred")
 
 async def taskdone_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /taskdone command for employees"""
-    chat_id = str(update.message.chat_id)
-    
-    # Special handling for admin - redirect to /done command
-    if chat_id == YOUR_ID:
-        await update.message.reply_text("📝 Please use /done command to view and manage all tasks.")
-        return
-    else:
-        employee_name = get_employee_name(chat_id)
-        if not employee_name:
-            await update.message.reply_text("❌ Only registered employees can use this command!")
-            return
-    
-    try:
-        args = context.args
-        
-        # If no task ID provided, show active tasks with hyperlinks
-        if not args or not args[0].isdigit():
-            # Get active tasks from database
-            active_tasks = db.get_active_tasks()
-            
-            if not active_tasks:
-                await update.message.reply_text("📝 No active tasks at the moment.")
-                return
-                
-            # Filter tasks for this employee
-            employee_tasks = [task for task in active_tasks if employee_name in task['employees']]
-            
-            if not employee_tasks:
-                await update.message.reply_text("📝 You have no active tasks at the moment.")
-                return
-                
-            message = "📋 Your Active Tasks:\n\nSelect a task to mark as completed:\n\n"
-            
-            # Create a button for each task
-            keyboard = []
-            for task in employee_tasks:
-                task_id = task['task_id']
-                task_desc = task['task']
-                # Truncate long task descriptions
-                if len(task_desc) > 30:
-                    task_desc = task_desc[:27] + "..."
-                keyboard.append([InlineKeyboardButton(f"Task #{task_id}: {task_desc}", callback_data=f"taskdone_{task_id}")])
-            
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await update.message.reply_text(message, reply_markup=reply_markup)
-            
-            return
-        
-        task_id = int(args[0])
-        
-        # Get task from database
-        task_info = db.get_task(task_id)
-        
-        if not task_info:
-            await update.message.reply_text(f"❌ Task #{task_id} not found!")
-            return
-        
-        # Allow admin to mark any task as done, but employees can only mark their own tasks
-        if chat_id != YOUR_ID and employee_name not in task_info['employees']:
-            await update.message.reply_text("❌ This task is not assigned to you!")
-            return
-        
-        if task_info['status'] != 'active':
-            await update.message.reply_text(f"❌ Task #{task_id} is already completed!")
-            return
-        
-        # Update task status in database
-        success = db.update_task_status(task_id, 'completed', employee_name)
-        
-        if not success:
-            await update.message.reply_text(f"❌ Failed to update task status. Please try again.")
-            return
-        
-        # Get updated task info for notification
-        updated_task = db.get_task(task_id)
-        completed_time = updated_task.get('completed_at', datetime.now()).strftime('%I:%M %p')
-        
-        # Notify admin
-        await context.bot.send_message(
-            chat_id=YOUR_ID,
-            text=f"✅ Task #{task_id} completed by {employee_name}\n"
-                 f"Task: {task_info['task']}\n"
-                 f"Completed at: {completed_time} (UAE)"
-        )
-        
-        await update.message.reply_text(f"✅ Task #{task_id} marked as completed!")
-        
-    except Exception as e:
-        logger.error(f"Error in taskdone_command: {e}")
-        await update.message.reply_text("❌ Failed to process command. Please try again.")
+    """Wrapper around tasks_command for backward compatibility"""
+    return await tasks_command(update, context)
+
+async def mytasks_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Wrapper around tasks_command for backward compatibility"""
+    return await tasks_command(update, context)
 
 async def notify_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /notify command for employees"""
@@ -1781,6 +1794,7 @@ async def main() -> None:
         application.add_handler(CommandHandler("clarify", clarify_command))
         application.add_handler(CommandHandler("inquire", inquire_command))
         application.add_handler(CommandHandler("taskdone", taskdone_command))
+        application.add_handler(CommandHandler("tasks", tasks_command))  # New unified command
         application.add_handler(CommandHandler("notify", notify_command))
         application.add_handler(CommandHandler("broadcast", broadcast_command))
         application.add_handler(CommandHandler("list_employees", list_employees_command))

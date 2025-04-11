@@ -240,14 +240,17 @@ class MongoDB:
     def update_task_status(self, task_id: int, status: str, completed_by: str = None) -> bool:
         """Update a task's status in database or in-memory storage"""
         if self.in_memory_mode:
+            # Update task in in-memory storage
             for task in self.tasks_data:
-                if task['task_id'] == task_id:
+                if task.get('task_id') == task_id:
                     task['status'] = status
-                    task['completed_at'] = datetime.now()
-                    task['completed_by'] = completed_by
+                    if status == 'completed' and completed_by:
+                        task['completed_at'] = datetime.now()
+                        task['completed_by'] = completed_by
                     return True
             return False
         else:
+            # Update task in MongoDB
             update = {
                 '$set': {
                     'status': status,
@@ -262,18 +265,94 @@ class MongoDB:
     def get_active_tasks(self) -> List[Dict]:
         """Get all active tasks from database or in-memory storage"""
         if self.in_memory_mode:
-            return [task for task in self.tasks_data if task['status'] == 'active']
+            # Return tasks from in-memory storage
+            return [task for task in self.tasks_data if task.get('status') == 'active']
         else:
-            # Convert cursor to list manually
-            cursor = self.tasks.find({'status': 'active'})
-            result = []
-            # Use a regular for loop
-            for doc in cursor:
-                result.append(doc)
-            return result
-    
+            try:
+                # Return tasks from MongoDB
+                cursor = self.tasks.find({"status": "active"})
+                return list(cursor)
+            except Exception as e:
+                logger.error(f"Error getting active tasks from MongoDB: {e}")
+                return []
+
+    def get_employees(self):
+        """Get all registered employees"""
+        try:
+            # Check if we're using in-memory mode
+            if self.in_memory_mode:
+                # Use global EMPLOYEES dictionary (from trichygold_botc.py)
+                from trichygold_botc import EMPLOYEES
+                # Convert the dictionary to a list of employee objects
+                employees = [{'name': name, 'chat_id': chat_id} for name, chat_id in EMPLOYEES.items()]
+                return employees
+            else:
+                # Get employees from MongoDB
+                # Assuming we have an 'employees' collection
+                if not hasattr(self, 'employees') or self.employees is None:
+                    self.employees = self.db.employees
+                
+                cursor = self.employees.find({})
+                return list(cursor)
+        except Exception as e:
+            logger.error(f"Error getting employees: {e}")
+            return []
+
+    def get_employee_tasks(self, employee_id):
+        """Get all tasks assigned to a specific employee"""
+        try:
+            # Check if we're using in-memory mode
+            if self.in_memory_mode:
+                # Use global TASKS and EMPLOYEES dictionaries (from trichygold_botc.py)
+                from trichygold_botc import TASKS, EMPLOYEES
+                
+                # Find the employee name from the chat_id
+                employee_name = None
+                for name, chat_id in EMPLOYEES.items():
+                    if chat_id == employee_id:
+                        employee_name = name
+                        break
+                
+                if not employee_name:
+                    return []
+                
+                # Get tasks assigned to this employee
+                employee_tasks = []
+                for task_id, task in TASKS.items():
+                    if employee_name in task.get('employees', []):
+                        # Add task_id to the task object
+                        task_copy = task.copy()
+                        task_copy['task_id'] = task_id
+                        employee_tasks.append(task_copy)
+                
+                return employee_tasks
+            else:
+                # Get tasks from MongoDB
+                # We need to find tasks where this employee is in the 'employees' array
+                if not hasattr(self, 'tasks') or self.tasks is None:
+                    self.tasks = self.db.tasks
+                
+                # First, find the employee name from the chat_id
+                employee_name = None
+                if hasattr(self, 'employees') and self.employees is not None:
+                    employee = self.employees.find_one({"chat_id": employee_id})
+                    if employee:
+                        employee_name = employee.get('name')
+                
+                if not employee_name:
+                    return []
+                
+                # Find tasks where this employee is in the employees array
+                cursor = self.tasks.find({"employees": employee_name})
+                return list(cursor)
+        except Exception as e:
+            logger.error(f"Error getting employee tasks: {e}")
+            return []
+
     # Inquiry operations
-    async def add_inquiry(self, task_id: int, employee: str, message: str) -> Dict:
+    def add_inquiry(self, task_id: int, employee: str, message: str) -> Dict:
+        """Add an inquiry to a task in database or in-memory storage"""
+        # ... (rest of the code remains the same)
         inquiry = {
             'task_id': task_id,
             'employee': employee,
@@ -301,7 +380,8 @@ class MongoDB:
             
         return inquiry
     
-    async def add_clarification(self, task_id: int, message: str) -> Dict:
+    def add_clarification(self, task_id: int, message: str) -> Dict:
+        """Add a clarification to a task in database or in-memory storage"""
         clarification = {
             'task_id': task_id,
             'message': message,
@@ -326,7 +406,8 @@ class MongoDB:
         return clarification
     
     # Notification operations
-    async def add_notification(self, from_id: str, message: str) -> Dict:
+    def add_notification(self, from_id: str, message: str) -> Dict:
+        """Add a notification to the database or in-memory storage"""
         notification = {
             'from_id': from_id,
             'message': message,
@@ -342,11 +423,17 @@ class MongoDB:
             
         return notification
     
-    async def get_pending_notifications(self) -> List[Dict]:
+    def get_pending_notifications(self) -> List[Dict]:
+        """Get pending notifications from database or in-memory storage"""
         if self.in_memory_mode:
             return [n for n in self.notifications_data if n['status'] == 'pending']
         else:
-            return await self.notifications.find({'status': 'pending'}).to_list(length=None)
+            # Convert cursor to list manually
+            cursor = self.notifications.find({'status': 'pending'})
+            result = []
+            for doc in cursor:
+                result.append(doc)
+            return result
     
     def is_connected(self) -> bool:
         """Check if MongoDB is connected and operational"""
