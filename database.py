@@ -277,42 +277,40 @@ class MongoDB:
                 return []
 
     def get_employees(self):
-        """Get all registered employees"""
+        """Get all employees from database or in-memory storage"""
         try:
-            # Check if we're using in-memory mode
             if self.in_memory_mode:
-                # Use global EMPLOYEES dictionary (from trichygold_botc.py)
+                # Access EMPLOYEES from the global scope in trichygold_botc
                 import sys
                 if 'trichygold_botc' in sys.modules:
-                    EMPLOYEES = sys.modules['trichygold_botc'].EMPLOYEES
-                    # Convert the dictionary to a list of employee objects
+                    from trichygold_botc import EMPLOYEES
                     employees = [{'name': name, 'chat_id': chat_id} for name, chat_id in EMPLOYEES.items()]
-                    logger.info(f"Retrieved {len(employees)} employees from in-memory storage")
                     return employees
                 else:
-                    # Fallback to direct import if module not in sys.modules
-                    try:
-                        from trichygold_botc import EMPLOYEES
-                        employees = [{'name': name, 'chat_id': chat_id} for name, chat_id in EMPLOYEES.items()]
-                        logger.info(f"Retrieved {len(employees)} employees via direct import")
-                        return employees
-                    except Exception as import_error:
-                        logger.error(f"Could not access EMPLOYEES dictionary: {import_error}")
-                        return []
+                    logger.warning("trichygold_botc module not found in sys.modules")
+                    return []
             else:
-                # Get employees from MongoDB
-                # Assuming we have an 'employees' collection
-                if not hasattr(self, 'employees') or self.employees is None:
-                    self.employees = self.db.employees
-                
-                cursor = self.employees.find({})
-                result = list(cursor)
-                logger.info(f"Retrieved {len(result)} employees from MongoDB")
-                return result
+                # MongoDB mode
+                if not self.is_connected():
+                    logger.warning("Cannot get employees: MongoDB not connected")
+                    return []
+                    
+                employees_collection = self.db.employees
+                employees = list(employees_collection.find({}))
+                return employees
         except Exception as e:
             logger.error(f"Error getting employees: {e}")
+            # Fallback to in-memory if available
+            try:
+                import sys
+                if 'trichygold_botc' in sys.modules:
+                    from trichygold_botc import EMPLOYEES
+                    employees = [{'name': name, 'chat_id': chat_id} for name, chat_id in EMPLOYEES.items()]
+                    return employees
+            except Exception as inner_e:
+                logger.error(f"Fallback error getting employees: {inner_e}")
             return []
-
+    
     def get_employee_tasks(self, employee_id):
         """Get all tasks assigned to a specific employee"""
         try:

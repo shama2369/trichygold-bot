@@ -122,9 +122,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Create buttons for employee commands
             keyboard = [
                 [InlineKeyboardButton("❓ Ask Questions", callback_data="cmd_inquire"),
-                 InlineKeyboardButton("✅ Mark Tasks Done", callback_data="cmd_tasks")],
+                 InlineKeyboardButton("✅ Mark Tasks Done", callback_data="cmd_taskdone")],
                 [InlineKeyboardButton("📢 Notify Admin", callback_data="cmd_notify"),
-                 InlineKeyboardButton("📃 My Tasks", callback_data="cmd_tasks")],
+                 InlineKeyboardButton("📋 View Tasks", callback_data="cmd_tasks")],
                 [InlineKeyboardButton("❓ Help", callback_data="cmd_help")]
             ]
         else:
@@ -357,38 +357,39 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if chat_id == YOUR_ID:
         help_text = (
-            "🔑 *Admin Commands*\n\n"
-            "/assign \- Assign tasks to employees\n"
-            "Format: /assign employee1,employee2 task \[time\]\n\n"
-            "/tasks \- View and manage all active tasks\n"
-            "Format: /tasks \[task\_id\]\n\n"
-            "/clarify \- Add details to tasks\n"
-            "Format: /clarify task\_id details\n\n"
-            "/broadcast \- Send message to all employees\n"
+            "Admin Commands\n\n"
+            "/assign - Assign tasks to employees\n"
+            "Format: /assign employee1,employee2 task [time]\n\n"
+            "/tasks - View and manage all active tasks\n"
+            "Format: /tasks [task_id]\n\n"
+            "/clarify - Add details to tasks\n"
+            "Format: /clarify task_id details\n\n"
+            "/broadcast - Send message to all employees\n"
             "Format: /broadcast message\n\n"
-            "/list\_employees \- View all registered employees\n\n"
-            "/task \- View tasks assigned to a specific employee\n"
-            "Format: /task employee\_name\n\n"
-            "/help \- Show this message\n\n"
-            "*Legacy Commands* \(use /tasks instead\):\n"
-            "/done \- Same as /tasks\n"
+            "/list_employees - View all registered employees\n\n"
+            "/task - View tasks assigned to a specific employee\n"
+            "Format: /task employee_name\n\n"
+            "/help - Show this message\n\n"
+            "Legacy Commands (use /tasks instead):\n"
+            "/done - Same as /tasks\n"
         )
     else:
         help_text = (
-            "👤 *Employee Commands*\n\n"
-            "/tasks \- View your tasks and mark them as completed\n"
-            "Format: /tasks \[task\_id\]\n\n"
-            "/inquire \- Ask questions about tasks\n"
-            "Format: /inquire task\_id question\n\n"
-            "/notify \- Send notice to admin\n"
+            "Employee Commands\n\n"
+            "/tasks - View your tasks and mark them as completed\n"
+            "Format: /tasks [task_id]\n\n"
+            "/inquire - Ask questions about tasks\n"
+            "Format: /inquire task_id question\n\n"
+            "/notify - Send notice to admin\n"
             "Format: /notify message\n\n"
-            "/help \- Show this message\n\n"
-            "*Legacy Commands* \(use /tasks instead\):\n"
-            "/taskdone \- Same as /tasks\n"
-            "/mytasks \- Same as /tasks\n"
+            "/help - Show this message\n\n"
+            "Legacy Commands (use /tasks instead):\n"
+            "/taskdone - Same as /tasks\n"
+            "/mytasks - Same as /tasks\n"
         )
     
-    await update.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN)
+    # Don't use markdown to avoid parsing issues
+    await update.message.reply_text(help_text)
 
 async def send_active_tasks(chat_id, context):
     """Helper function to send active tasks with buttons"""
@@ -461,8 +462,8 @@ async def tasks_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Unified command to handle viewing and completing tasks for both admin and employees"""
     try:
         chat_id = str(update.message.chat_id)
-        is_admin = (chat_id == YOUR_ID)
-        employee_name = None if is_admin else get_employee_name(chat_id)
+        is_admin = chat_id == YOUR_ID
+        employee_name = get_employee_name(chat_id) if not is_admin else None
         
         # If employee is not registered, reject the command
         if not is_admin and not employee_name:
@@ -470,11 +471,10 @@ async def tasks_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         
         # Check if a task_id was provided to mark a task as done
-        args = context.args
-        if args and args[0].isdigit():
-            task_id = int(args[0])
-            # Handle task completion
-            return await handle_task_completion(update, context, task_id, is_admin, employee_name)
+        if context.args and len(context.args) > 0:
+            task_id = int(context.args[0])
+            await handle_task_completion(update, context, task_id, is_admin, employee_name)
+            return
         
         # No task ID provided, show active tasks based on user role
         if is_admin:
@@ -482,40 +482,9 @@ async def tasks_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("📋 Active Tasks:\n\nSelect a task to manage:")
             await send_active_tasks(update.message.chat_id, context)
         else:
-            # Employee sees only their tasks
-            # Get active tasks from database
-            active_tasks = db.get_active_tasks()
-            
-            # Filter tasks for this employee
-            employee_tasks = [task for task in active_tasks if employee_name in task.get('employees', [])]
-            
-            if not employee_tasks:
-                await update.message.reply_text("📝 You have no active tasks at the moment.")
-                return
-                
-            message = "📋 Your Active Tasks:\n\n"
-            
-            # Display each task with action buttons
-            for task in employee_tasks:
-                task_id = task['task_id']
-                task_desc = task['task']
-                created_at = task.get('created_at', datetime.now()).strftime('%I:%M %p')
-                
-                task_message = (
-                    f"Task #{task_id}:\n"
-                    f"• Description: {task_desc}\n"
-                    f"• Created: {created_at} (UAE)\n\n"
-                )
-                
-                # Add action buttons for each task
-                keyboard = [
-                    [
-                        InlineKeyboardButton("✅ Mark Done", callback_data=f"taskdone_{task_id}"),
-                        InlineKeyboardButton("❓ Ask Question", callback_data=f"inquire_{task_id}")
-                    ]
-                ]
-                reply_markup = InlineKeyboardMarkup(keyboard)
-                await update.message.reply_text(task_message, reply_markup=reply_markup)
+            # Employee sees only their tasks with the same interface as admin for consistency
+            await update.message.reply_text("📋 Your Active Tasks:\n\nSelect a task to manage:")
+            await send_active_tasks(update.message.chat_id, context)
             
     except Exception as e:
         logger.error(f"Error in tasks_command: {e}")
@@ -1138,8 +1107,9 @@ async def taskdone_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return await tasks_command(update, context)
 
 async def mytasks_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Wrapper around tasks_command for backward compatibility"""
-    return await tasks_command(update, context)
+    """Handle /mytasks command for employees to view their tasks"""
+    # For backward compatibility, just redirect to tasks_command
+    await tasks_command(update, context)
 
 async def notify_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /notify command for employees"""
