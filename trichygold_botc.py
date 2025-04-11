@@ -1,5 +1,5 @@
 import asyncio
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from telegram.constants import ParseMode
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters, CallbackQueryHandler
 from datetime import datetime, time
@@ -863,33 +863,88 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
             command = data.replace('cmd_', '/')
             await query.answer(f"Running command: {command}")
             
-            # Create a mock message to simulate the command
-            mock_message = copy.deepcopy(query.message)
-            mock_message.text = command
-            mock_message.from_user = query.from_user
-            mock_update = Update(update.update_id, message=mock_message)
-            
-            # Execute the appropriate command
+            # Execute the appropriate command directly without creating mock objects
             if data == 'cmd_assign':
                 await query.message.reply_text("Use /assign employee1,employee2 <task> [time]\n\nExample: /assign rehan,shameem Check inventory 30m")
             elif data == 'cmd_done':
-                await done_command(mock_update, context)
+                # For commands that show task lists, call them directly
+                # Set empty args for the context
+                context.args = []
+                # Get the chat_id from the callback query
+                chat_id = str(query.from_user.id)
+                # Create a new message object with the correct chat_id
+                new_message = Message(
+                    message_id=query.message.message_id,
+                    date=datetime.now(),
+                    chat=query.message.chat,
+                    from_user=query.from_user,
+                    text='/done',
+                    bot=query.message.bot,
+                    entities=[]
+                )
+                # Create a new update object
+                new_update = Update(update.update_id, message=new_message)
+                await done_command(new_update, context)
             elif data == 'cmd_clarify':
                 await query.message.reply_text("Use /clarify <task_id> <additional details>")
             elif data == 'cmd_broadcast':
                 await query.message.reply_text("Use /broadcast <message>")
             elif data == 'cmd_list_employees':
-                await list_employees_command(mock_update, context)
+                # Create a new message for list_employees command
+                new_message = Message(
+                    message_id=query.message.message_id,
+                    date=datetime.now(),
+                    chat=query.message.chat,
+                    from_user=query.from_user,
+                    text='/list_employees',
+                    bot=query.message.bot,
+                    entities=[]
+                )
+                new_update = Update(update.update_id, message=new_message)
+                await list_employees_command(new_update, context)
             elif data == 'cmd_help':
-                await help_command(mock_update, context)
+                # Create a new message for help command
+                new_message = Message(
+                    message_id=query.message.message_id,
+                    date=datetime.now(),
+                    chat=query.message.chat,
+                    from_user=query.from_user,
+                    text='/help',
+                    bot=query.message.bot,
+                    entities=[]
+                )
+                new_update = Update(update.update_id, message=new_message)
+                await help_command(new_update, context)
             elif data == 'cmd_inquire':
                 await query.message.reply_text("Use /inquire <task_id> <your question>")
             elif data == 'cmd_taskdone':
-                await taskdone_command(mock_update, context)
+                # Create a new message for taskdone command
+                new_message = Message(
+                    message_id=query.message.message_id,
+                    date=datetime.now(),
+                    chat=query.message.chat,
+                    from_user=query.from_user,
+                    text='/taskdone',
+                    bot=query.message.bot,
+                    entities=[]
+                )
+                new_update = Update(update.update_id, message=new_message)
+                await taskdone_command(new_update, context)
             elif data == 'cmd_notify':
                 await query.message.reply_text("Use /notify <message>")
             elif data == 'cmd_mytasks':
-                await mytasks_command(mock_update, context)
+                # Create a new message for mytasks command
+                new_message = Message(
+                    message_id=query.message.message_id,
+                    date=datetime.now(),
+                    chat=query.message.chat,
+                    from_user=query.from_user,
+                    text='/mytasks',
+                    bot=query.message.bot,
+                    entities=[]
+                )
+                new_update = Update(update.update_id, message=new_message)
+                await mytasks_command(new_update, context)
         elif data == 'add_employee':
             await query.answer()
             await query.message.reply_text(
