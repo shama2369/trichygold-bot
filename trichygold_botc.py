@@ -1,4 +1,5 @@
 import asyncio
+import sys
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from telegram.constants import ParseMode
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters, CallbackQueryHandler
@@ -394,8 +395,23 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def send_active_tasks(chat_id, context):
     """Helper function to send active tasks with buttons"""
     try:
-        # Get active tasks from database
-        active_tasks = db.get_active_tasks()
+        # First try to get tasks from in-memory TASKS dictionary
+        if TASKS:
+            # Convert the TASKS dictionary into a list of task objects
+            all_tasks = []
+            for task_id, task_data in TASKS.items():
+                # Only include tasks that aren't marked as completed
+                if task_data.get('status') != 'completed':
+                    # Make sure task has the correct format with task_id
+                    task_obj = task_data.copy()
+                    task_obj['task_id'] = task_id
+                    all_tasks.append(task_obj)
+            active_tasks = all_tasks
+            logger.info(f"Using in-memory TASKS dictionary: {len(active_tasks)} active tasks found")
+        else:
+            # Fall back to database if TASKS is empty
+            active_tasks = db.get_active_tasks()
+            logger.info(f"Using database: {len(active_tasks)} active tasks found")
         
         if not active_tasks:
             await context.bot.send_message(chat_id=chat_id, text="📝 No active tasks at the moment.")
@@ -406,8 +422,8 @@ async def send_active_tasks(chat_id, context):
             # Create a button for each task for the admin
             for task in active_tasks:
                 task_id = task['task_id']
-                assignees = task['employees']
-                task_desc = task['task']
+                assignees = task.get('employees', [])
+                task_desc = task.get('task', 'No description')
                 
                 # Format the task information
                 task_message = (
@@ -417,7 +433,7 @@ async def send_active_tasks(chat_id, context):
                     f"• Time allocated: {task.get('reminder_interval', 'Not specified')} minutes\n"
                 )
                 
-                # Create buttons for task actions
+                # Create buttons for task actions - match the format in screenshot 3
                 keyboard = [
                     [InlineKeyboardButton("✅ Mark as Done", callback_data=f"taskdone_{task_id}"),
                      InlineKeyboardButton("❓ Ask Question", callback_data=f"inquire_{task_id}")]
@@ -433,7 +449,7 @@ async def send_active_tasks(chat_id, context):
                 return
                 
             # Filter tasks for this employee
-            employee_tasks = [task for task in active_tasks if employee_name in task['employees']]
+            employee_tasks = [task for task in active_tasks if employee_name in task.get('employees', [])]
             
             if not employee_tasks:
                 await context.bot.send_message(chat_id=chat_id, text="📝 You have no active tasks at the moment.")
@@ -442,12 +458,15 @@ async def send_active_tasks(chat_id, context):
             # Send each employee task as a separate message with buttons
             for task in employee_tasks:
                 task_id = task['task_id']
+                task_desc = task.get('task', 'No description')
+                
+                # Format matches screenshot 3
                 task_message = (
                     f"Task #{task_id}:\n"
-                    f"• Description: {task['task']}\n"
+                    f"• Description: {task_desc}\n"
                     f"• Time allocated: {task.get('reminder_interval', 'Not specified')} minutes\n"
                 )
-                # Add buttons for employee actions
+                # Add buttons for employee actions - same format as in screenshot 3
                 keyboard = [
                     [InlineKeyboardButton("✅ Mark as Done", callback_data=f"taskdone_{task_id}"),
                      InlineKeyboardButton("❓ Ask Question", callback_data=f"inquire_{task_id}")]
@@ -593,46 +612,83 @@ async def list_employees_command(update: Update, context: ContextTypes.DEFAULT_T
         if chat_id != YOUR_ID:
             await update.message.reply_text("❌ Only admin can use this command.")
             return
-            
-        # Get employees from database
-        employees = db.get_employees()
         
-        if not employees:
-            await update.message.reply_text(
-                "📋 No employees registered.\n"
-                "To add an employee, use:\n"
-                "/add_employee <name> <telegram_id>"
-            )
-            return
+        # Use global EMPLOYEES dictionary directly since it's more reliable
+        if EMPLOYEES:
+            # Build employee list with task counts
+            employee_list = []
             
-        # Build employee list with task counts
-        employee_list = []
-        for emp in employees:
-            name = emp['name']
-            emp_id = emp['chat_id']
+            for name, emp_id in EMPLOYEES.items():
+                # Count active and total tasks for this employee
+                active_count = 0
+                total_count = 0
+                
+                # Check tasks in global TASKS dictionary
+                for task_id, task in TASKS.items():
+                    if name in task.get('employees', []):
+                        total_count += 1
+                        if task.get('status') != 'completed':
+                            active_count += 1
+                
+                employee_list.append(f"👤 {name}\n   📱 ID: {emp_id}\n   📋 Tasks: {active_count} active, {total_count} total")
             
-            # Get tasks for this employee
-            tasks = db.get_employee_tasks(emp_id)
-            active_tasks = sum(1 for task in tasks if task.get('status') == 'active')
-            total_tasks = len(tasks)
+            message = "📋 Registered Employees:\n\n" + "\n\n".join(employee_list)
+            message += "\n\nTo add an employee:\n/add_employee <name> <telegram_id>"
             
-            employee_list.append(f"👤 {name}\n   📱 ID: {emp_id}\n   📋 Tasks: {active_tasks} active, {total_tasks} total")
-        
-        message = "📋 Registered Employees:\n\n" + "\n\n".join(employee_list)
-        message += "\n\nTo add an employee:\n/add_employee <name> <telegram_id>"
-        
-        # Add button to add new employee
-        keyboard = [
-            [InlineKeyboardButton("➕ Add New Employee", callback_data="add_employee")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        await update.message.reply_text(message, reply_markup=reply_markup)
+            # Add button to add new employee
+            keyboard = [
+                [InlineKeyboardButton("➕ Add New Employee", callback_data="add_employee")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await update.message.reply_text(message, reply_markup=reply_markup)
+        else:
+            # Fall back to database if EMPLOYEES is empty
+            employees = db.get_employees()
+            
+            if not employees or len(employees) == 0:
+                await update.message.reply_text(
+                    "📋 No employees registered.\n"
+                    "To add an employee, use:\n"
+                    "/add_employee <name> <telegram_id>"
+                )
+                return
+                
+            # Build employee list with task counts
+            employee_list = []
+            
+            for employee in employees:
+                name = employee.get('name')
+                emp_id = employee.get('chat_id')
+                
+                # Count active and total tasks for this employee from TASKS
+                active_count = 0
+                total_count = 0
+                
+                for task_id, task in TASKS.items():
+                    if name in task.get('employees', []):
+                        total_count += 1
+                        if task.get('status') != 'completed':
+                            active_count += 1
+                
+                employee_list.append(f"👤 {name}\n   📱 ID: {emp_id}\n   📋 Tasks: {active_count} active, {total_count} total")
+            
+            message = "📋 Registered Employees:\n\n" + "\n\n".join(employee_list)
+            message += "\n\nTo add an employee:\n/add_employee <name> <telegram_id>"
+            
+            # Add button to add new employee
+            keyboard = [
+                [InlineKeyboardButton("➕ Add New Employee", callback_data="add_employee")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await update.message.reply_text(message, reply_markup=reply_markup)
         
     except Exception as e:
         logger.error(f"Error in list_employees_command: {e}")
         await update.message.reply_text("❌ An error occurred while listing employees.")
 
+# ... (rest of the code remains the same)
 async def notify_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /notify command for admin to send notifications about specific tasks"""
     try:
