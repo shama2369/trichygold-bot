@@ -353,15 +353,37 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /help command to display available commands"""
-    help_text = (
-        "📋 Available Commands:\n\n"
-        "/assign - Assign tasks (single/group)\n"
-        "/done - View & manage active tasks\n"
-        "/clarify - Add details to tasks\n"
-        "/broadcast - Send custom message to all\n"
-        "/list_employees - View all employees\n"
-    )
-    await update.message.reply_text(help_text)
+    chat_id = str(update.message.chat_id)
+    
+    if chat_id == YOUR_ID:
+        help_text = (
+            "🔑 *Admin Commands*\n\n"
+            "/assign - Assign tasks to employees\n"
+            "Format: /assign employee1,employee2 <task> [time]\n\n"
+            "/done - View & manage active tasks\n\n"
+            "/clarify - Add details to tasks\n"
+            "Format: /clarify <task_id> <details>\n\n"
+            "/broadcast - Send message to all employees\n"
+            "Format: /broadcast <message>\n\n"
+            "/list_employees - View all registered employees\n\n"
+            "/task - View tasks assigned to a specific employee\n"
+            "Format: /task <employee_name>\n\n"
+            "/help - Show this message"
+        )
+    else:
+        help_text = (
+            "👤 *Employee Commands*\n\n"
+            "/inquire - Ask questions about tasks\n"
+            "Format: /inquire <task_id> <question>\n\n"
+            "/taskdone - Mark tasks as completed\n"
+            "Format: /taskdone <task_id>\n\n"
+            "/notify - Send notice to admin\n"
+            "Format: /notify <message>\n\n"
+            "/mytasks - View your active tasks\n\n"
+            "/help - Show this message"
+        )
+    
+    await update.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN)
 
 async def send_active_tasks(chat_id, context):
     """Helper function to send active tasks with buttons"""
@@ -505,7 +527,10 @@ async def list_employees_command(update: Update, context: ContextTypes.DEFAULT_T
             await update.message.reply_text("❌ Only admin can use this command.")
             return
             
-        if not EMPLOYEES:
+        # Get employees from database
+        employees = db.get_employees()
+        
+        if not employees:
             await update.message.reply_text(
                 "📋 No employees registered.\n"
                 "To add an employee, use:\n"
@@ -515,18 +540,27 @@ async def list_employees_command(update: Update, context: ContextTypes.DEFAULT_T
             
         # Build employee list with task counts
         employee_list = []
-        for name, emp_id in EMPLOYEES.items():
-            active_tasks = sum(1 for task in TASKS.values() 
-                             if name in task.get('employees', []) 
-                             and task.get('status') != 'completed')
-            total_tasks = sum(1 for task in TASKS.values() 
-                            if name in task.get('employees', []))
+        for emp in employees:
+            name = emp['name']
+            emp_id = emp['chat_id']
+            
+            # Get tasks for this employee
+            tasks = db.get_employee_tasks(emp_id)
+            active_tasks = sum(1 for task in tasks if task.get('status') == 'active')
+            total_tasks = len(tasks)
+            
             employee_list.append(f"👤 {name}\n   📱 ID: {emp_id}\n   📋 Tasks: {active_tasks} active, {total_tasks} total")
         
         message = "📋 Registered Employees:\n\n" + "\n\n".join(employee_list)
         message += "\n\nTo add an employee:\n/add_employee <name> <telegram_id>"
         
-        await update.message.reply_text(message)
+        # Add button to add new employee
+        keyboard = [
+            [InlineKeyboardButton("➕ Add New Employee", callback_data="add_employee")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.message.reply_text(message, reply_markup=reply_markup)
         
     except Exception as e:
         logger.error(f"Error in list_employees_command: {e}")
@@ -885,13 +919,38 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
                 await query.message.reply_text("Use /broadcast <message>")
             elif data == 'cmd_list_employees':
                 # Just use the query message to reply with employee list
-                employees = db.get_employees()
-                if not employees:
-                    await query.message.reply_text("No employees registered.")
-                    return
-                
-                employee_list = "\n".join([f"👤 {emp['name']} (ID: {emp['chat_id']})" for emp in employees])
-                await query.message.reply_text(f"📋 Registered Employees:\n\n{employee_list}")
+                try:
+                    employees = db.get_employees()
+                    if not employees:
+                        await query.message.reply_text("📋 No employees registered.\n\nTo add an employee, use:\n/add_employee <name> <telegram_id>")
+                        return
+                    
+                    # Build employee list with task counts
+                    employee_list = []
+                    for emp in employees:
+                        name = emp['name']
+                        emp_id = emp['chat_id']
+                        
+                        # Get tasks for this employee
+                        tasks = db.get_employee_tasks(emp_id)
+                        active_tasks = sum(1 for task in tasks if task.get('status') == 'active')
+                        total_tasks = len(tasks)
+                        
+                        employee_list.append(f"👤 {name}\n   📱 ID: {emp_id}\n   📋 Tasks: {active_tasks} active, {total_tasks} total")
+                    
+                    message = "📋 Registered Employees:\n\n" + "\n\n".join(employee_list)
+                    message += "\n\nTo add an employee:\n/add_employee <name> <telegram_id>"
+                    
+                    # Add button to add new employee
+                    keyboard = [
+                        [InlineKeyboardButton("➕ Add New Employee", callback_data="add_employee")]
+                    ]
+                    reply_markup = InlineKeyboardMarkup(keyboard)
+                    
+                    await query.message.reply_text(message, reply_markup=reply_markup)
+                except Exception as e:
+                    logger.error(f"Error in cmd_list_employees: {e}")
+                    await query.message.reply_text("❌ An error occurred while listing employees.")
             elif data == 'cmd_help':
                 # Just send the help message directly
                 chat_id = str(query.from_user.id)
@@ -906,6 +965,8 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
                         "/broadcast - Send message to all employees\n"
                         "Format: /broadcast <message>\n\n"
                         "/list_employees - View all registered employees\n\n"
+                        "/task - View tasks assigned to a specific employee\n"
+                        "Format: /task <employee_name>\n\n"
                         "/help - Show this message"
                     )
                 else:
@@ -1144,6 +1205,83 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Error in broadcast_command: {e}")
         await update.message.reply_text("❌ An error occurred.")
+
+async def task_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /task command to view tasks assigned to a specific employee"""
+    try:
+        chat_id = str(update.message.chat_id)
+        
+        # Only admin can use this command
+        if chat_id != YOUR_ID:
+            await update.message.reply_text("❌ This command is only for admin use.")
+            return
+        
+        # Check if employee name was provided
+        args = context.args
+        if not args:
+            await update.message.reply_text("❌ Usage: /task <employee_name>\n\nExample: /task Rehan")
+            return
+        
+        # Get employee name from args
+        employee_name = " ".join(args).strip()
+        
+        # Get all employees
+        employees = db.get_employees()
+        
+        # Find the employee with the given name
+        employee_id = None
+        for emp in employees:
+            if emp['name'].lower() == employee_name.lower():
+                employee_id = emp['chat_id']
+                employee_name = emp['name']  # Use the correct case
+                break
+        
+        if not employee_id:
+            await update.message.reply_text(f"❌ No employee found with name '{employee_name}'.\n\nUse /list_employees to see all registered employees.")
+            return
+        
+        # Get tasks assigned to this employee
+        tasks = db.get_employee_tasks(employee_id)
+        
+        if not tasks:
+            await update.message.reply_text(f"📋 {employee_name} has no tasks assigned.")
+            return
+        
+        # Group tasks by status
+        active_tasks = [t for t in tasks if t['status'] == 'active']
+        completed_tasks = [t for t in tasks if t['status'] == 'completed']
+        
+        # Display active tasks
+        if active_tasks:
+            message = f"📋 Active Tasks for {employee_name}:\n\n"
+            for task in active_tasks:
+                task_id = task['task_id']
+                message += (
+                    f"Task #{task_id}:\n"
+                    f"• Description: {task['task']}\n"
+                    f"• Time allocated: {task.get('reminder_interval', 'Not specified')} minutes\n\n"
+                )
+            await update.message.reply_text(message)
+        else:
+            await update.message.reply_text(f"📋 {employee_name} has no active tasks.")
+        
+        # Display completed tasks (last 5)
+        if completed_tasks:
+            # Sort by completion time (newest first) and take last 5
+            completed_tasks.sort(key=lambda x: x.get('completed_at', datetime.min), reverse=True)
+            recent_completed = completed_tasks[:5]
+            message = f"📋 Recently Completed Tasks for {employee_name}:\n\n"
+            for task in recent_completed:
+                task_id = task['task_id']
+                message += (
+                    f"✅ Task #{task_id}:\n"
+                    f"• Description: {task['task']}\n"
+                    f"• Completed: {task.get('completed_at', datetime.now()).strftime('%I:%M %p')} (UAE)\n\n"
+                )
+            await update.message.reply_text(message)
+    except Exception as e:
+        logger.error(f"Error in task_command: {e}")
+        await update.message.reply_text("❌ An error occurred while fetching tasks.")
 
 async def mytasks_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /mytasks command for employees to view their tasks"""
@@ -1647,6 +1785,7 @@ async def main() -> None:
         application.add_handler(CommandHandler("broadcast", broadcast_command))
         application.add_handler(CommandHandler("list_employees", list_employees_command))
         application.add_handler(CommandHandler("mytasks", mytasks_command))
+        application.add_handler(CommandHandler("task", task_command))
         application.add_handler(CommandHandler("dbstatus", db_status_command))
         application.add_handler(CommandHandler("dbreconnect", db_reconnect_command))
         application.add_handler(CommandHandler("dbmigrate", db_migrate_command))
