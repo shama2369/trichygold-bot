@@ -363,29 +363,18 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(help_text)
 
-async def done_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /done command to view active tasks"""
+async def send_active_tasks(chat_id, context):
+    """Helper function to send active tasks with buttons"""
     try:
-        chat_id = str(update.message.chat_id)
-        
-        # Check if a task_id was provided to mark a task as done
-        args = context.args
-        if args and args[0].isdigit():
-            task_id = int(args[0])
-            # Call taskdone_command to handle the task completion
-            return await taskdone_command(update, context)
-        
         # Get active tasks from database
         active_tasks = db.get_active_tasks()
         
         if not active_tasks:
-            await update.message.reply_text("📝 No active tasks at the moment.\n\nUse /done <task_id> to mark a task as completed.")
+            await context.bot.send_message(chat_id=chat_id, text="📝 No active tasks at the moment.")
             return
             
         # Format tasks based on user role
-        if chat_id == YOUR_ID:  # Admin view
-            message = "📋 Active Tasks:\n\nSelect a task to manage:\n\n"
-            
+        if str(chat_id) == YOUR_ID:  # Admin view
             # Create a button for each task for the admin
             for task in active_tasks:
                 task_id = task['task_id']
@@ -408,42 +397,58 @@ async def done_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 
                 # Send each task as a separate message with buttons
-                await update.message.reply_text(task_message, reply_markup=reply_markup)
-            
-            # Set message to empty since we've already sent all tasks
-            message = ""
+                await context.bot.send_message(chat_id=chat_id, text=task_message, reply_markup=reply_markup)
         else:  # Employee view
-            employee_name = get_employee_name(chat_id)
+            employee_name = get_employee_name(str(chat_id))
             if not employee_name:
-                await update.message.reply_text("❌ You are not registered as an employee.")
+                await context.bot.send_message(chat_id=chat_id, text="❌ You are not registered as an employee.")
                 return
                 
             # Filter tasks for this employee
             employee_tasks = [task for task in active_tasks if employee_name in task['employees']]
             
             if not employee_tasks:
-                await update.message.reply_text("📝 You have no active tasks at the moment.")
+                await context.bot.send_message(chat_id=chat_id, text="📝 You have no active tasks at the moment.")
                 return
                 
-            message = "📋 Your Active Tasks:\n\n"
+            # Send each employee task as a separate message with buttons
             for task in employee_tasks:
                 task_id = task['task_id']
-                message += (
+                task_message = (
                     f"Task #{task_id}:\n"
                     f"• Description: {task['task']}\n"
                     f"• Time allocated: {task.get('reminder_interval', 'Not specified')} minutes\n"
                 )
                 # Add buttons for employee actions
                 keyboard = [
-                    [InlineKeyboardButton("Mark as Done ✅", callback_data=f"taskdone_{task_id}")],
-                    [InlineKeyboardButton("Ask Question ❓", callback_data=f"inquire_{task_id}")]
+                    [InlineKeyboardButton("✅ Mark as Done", callback_data=f"taskdone_{task_id}"),
+                     InlineKeyboardButton("❓ Ask Question", callback_data=f"inquire_{task_id}")]
                 ]
                 reply_markup = InlineKeyboardMarkup(keyboard)
-                await update.message.reply_text(message, reply_markup=reply_markup)
-                message = ""  # Reset for next task
-                
-        if message:  # Send remaining message if any
-            await update.message.reply_text(message)
+                await context.bot.send_message(chat_id=chat_id, text=task_message, reply_markup=reply_markup)
+    except Exception as e:
+        logger.error(f"Error in send_active_tasks: {e}")
+        await context.bot.send_message(chat_id=chat_id, text="❌ An error occurred while fetching tasks.")
+
+async def done_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /done command to view active tasks"""
+    try:
+        chat_id = str(update.message.chat_id)
+        
+        # Check if a task_id was provided to mark a task as done
+        args = context.args
+        if args and args[0].isdigit():
+            task_id = int(args[0])
+            # Call taskdone_command to handle the task completion
+            return await taskdone_command(update, context)
+        
+        # Only admin can use this command
+        if chat_id != YOUR_ID:
+            await update.message.reply_text("❌ This command is only for admin use.\n\nEmployees should use /taskdone instead.")
+            return
+        
+        await update.message.reply_text("📋 Active Tasks:\n\nSelect a task to manage:")
+        await send_active_tasks(update.message.chat_id, context)
             
     except Exception as e:
         logger.error(f"Error in done_command: {e}")
@@ -860,91 +865,138 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
             )
         # Handle command buttons from welcome message
         elif data.startswith('cmd_'):
-            command = data.replace('cmd_', '/')
+            command = data.replace('cmd_', '')
             await query.answer(f"Running command: {command}")
             
-            # Execute the appropriate command directly without creating mock objects
+            # Execute the appropriate command directly
             if data == 'cmd_assign':
                 await query.message.reply_text("Use /assign employee1,employee2 <task> [time]\n\nExample: /assign rehan,shameem Check inventory 30m")
             elif data == 'cmd_done':
-                # For commands that show task lists, call them directly
+                # For commands that show task lists, execute them directly
+                chat_id = str(query.from_user.id)
                 # Set empty args for the context
                 context.args = []
-                # Get the chat_id from the callback query
-                chat_id = str(query.from_user.id)
-                # Create a new message object with the correct chat_id
-                new_message = Message(
-                    message_id=query.message.message_id,
-                    date=datetime.now(),
-                    chat=query.message.chat,
-                    from_user=query.from_user,
-                    text='/done',
-                    bot=query.message.bot,
-                    entities=[]
-                )
-                # Create a new update object
-                new_update = Update(update.update_id, message=new_message)
-                await done_command(new_update, context)
+                # Just use the query message to reply with task list
+                await query.message.reply_text("📋 Active Tasks:")
+                await send_active_tasks(query.message.chat_id, context)
             elif data == 'cmd_clarify':
                 await query.message.reply_text("Use /clarify <task_id> <additional details>")
             elif data == 'cmd_broadcast':
                 await query.message.reply_text("Use /broadcast <message>")
             elif data == 'cmd_list_employees':
-                # Create a new message for list_employees command
-                new_message = Message(
-                    message_id=query.message.message_id,
-                    date=datetime.now(),
-                    chat=query.message.chat,
-                    from_user=query.from_user,
-                    text='/list_employees',
-                    bot=query.message.bot,
-                    entities=[]
-                )
-                new_update = Update(update.update_id, message=new_message)
-                await list_employees_command(new_update, context)
+                # Just use the query message to reply with employee list
+                employees = db.get_employees()
+                if not employees:
+                    await query.message.reply_text("No employees registered.")
+                    return
+                
+                employee_list = "\n".join([f"👤 {emp['name']} (ID: {emp['chat_id']})" for emp in employees])
+                await query.message.reply_text(f"📋 Registered Employees:\n\n{employee_list}")
             elif data == 'cmd_help':
-                # Create a new message for help command
-                new_message = Message(
-                    message_id=query.message.message_id,
-                    date=datetime.now(),
-                    chat=query.message.chat,
-                    from_user=query.from_user,
-                    text='/help',
-                    bot=query.message.bot,
-                    entities=[]
-                )
-                new_update = Update(update.update_id, message=new_message)
-                await help_command(new_update, context)
+                # Just send the help message directly
+                chat_id = str(query.from_user.id)
+                if chat_id == YOUR_ID:
+                    help_text = (
+                        "🔑 *Admin Commands*\n\n"
+                        "/assign - Assign tasks to employees\n"
+                        "Format: /assign employee1,employee2 <task> [time]\n\n"
+                        "/done - View & manage active tasks\n\n"
+                        "/clarify - Add details to tasks\n"
+                        "Format: /clarify <task_id> <details>\n\n"
+                        "/broadcast - Send message to all employees\n"
+                        "Format: /broadcast <message>\n\n"
+                        "/list_employees - View all registered employees\n\n"
+                        "/help - Show this message"
+                    )
+                else:
+                    help_text = (
+                        "👤 *Employee Commands*\n\n"
+                        "/inquire - Ask questions about tasks\n"
+                        "Format: /inquire <task_id> <question>\n\n"
+                        "/taskdone - Mark tasks as completed\n"
+                        "Format: /taskdone <task_id>\n\n"
+                        "/notify - Send notice to admin\n"
+                        "Format: /notify <message>\n\n"
+                        "/mytasks - View your active tasks\n\n"
+                        "/help - Show this message"
+                    )
+                await query.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN)
             elif data == 'cmd_inquire':
                 await query.message.reply_text("Use /inquire <task_id> <your question>")
             elif data == 'cmd_taskdone':
-                # Create a new message for taskdone command
-                new_message = Message(
-                    message_id=query.message.message_id,
-                    date=datetime.now(),
-                    chat=query.message.chat,
-                    from_user=query.from_user,
-                    text='/taskdone',
-                    bot=query.message.bot,
-                    entities=[]
-                )
-                new_update = Update(update.update_id, message=new_message)
-                await taskdone_command(new_update, context)
+                # Just use the query message to reply with task list
+                chat_id = str(query.from_user.id)
+                employee_name = get_employee_name(chat_id)
+                
+                if not employee_name:
+                    await query.message.reply_text("❌ You are not registered as an employee.")
+                    return
+                
+                # Get tasks assigned to this employee
+                tasks = db.get_employee_tasks(chat_id)
+                active_tasks = [t for t in tasks if t['status'] == 'active']
+                
+                if not active_tasks:
+                    await query.message.reply_text("📋 You have no active tasks.")
+                    return
+                
+                # Display active tasks with buttons
+                for task in active_tasks:
+                    task_id = task['task_id']
+                    task_text = task['task']
+                    assigned_time = task.get('assigned_at', 'Unknown')
+                    if isinstance(assigned_time, datetime):
+                        assigned_time = assigned_time.strftime('%I:%M %p')
+                    
+                    # Create buttons for task actions
+                    keyboard = [
+                        [InlineKeyboardButton("✅ Mark as Done", callback_data=f"taskdone_{task_id}"),
+                         InlineKeyboardButton("❓ Ask Question", callback_data=f"inquire_{task_id}")]
+                    ]
+                    reply_markup = InlineKeyboardMarkup(keyboard)
+                    
+                    await query.message.reply_text(
+                        f"📌 Task #{task_id}\n"
+                        f"📝 {task_text}\n"
+                        f"⏰ Assigned: {assigned_time} (UAE)",
+                        reply_markup=reply_markup
+                    )
             elif data == 'cmd_notify':
                 await query.message.reply_text("Use /notify <message>")
             elif data == 'cmd_mytasks':
-                # Create a new message for mytasks command
-                new_message = Message(
-                    message_id=query.message.message_id,
-                    date=datetime.now(),
-                    chat=query.message.chat,
-                    from_user=query.from_user,
-                    text='/mytasks',
-                    bot=query.message.bot,
-                    entities=[]
-                )
-                new_update = Update(update.update_id, message=new_message)
-                await mytasks_command(new_update, context)
+                # Just use the query message to reply with task list
+                chat_id = str(query.from_user.id)
+                employee_name = get_employee_name(chat_id)
+                
+                if not employee_name:
+                    await query.message.reply_text("❌ You are not registered as an employee.")
+                    return
+                
+                # Get tasks assigned to this employee
+                tasks = db.get_employee_tasks(chat_id)
+                
+                if not tasks:
+                    await query.message.reply_text("📋 You have no tasks assigned.")
+                    return
+                
+                # Group tasks by status
+                active_tasks = [t for t in tasks if t['status'] == 'active']
+                completed_tasks = [t for t in tasks if t['status'] == 'completed']
+                
+                # Display active tasks
+                if active_tasks:
+                    active_task_list = "\n\n".join([f"📌 Task #{t['task_id']}\n📝 {t['task']}" for t in active_tasks])
+                    await query.message.reply_text(f"📋 Your Active Tasks:\n\n{active_task_list}")
+                else:
+                    await query.message.reply_text("📋 You have no active tasks.")
+                
+                # Display completed tasks (last 5)
+                if completed_tasks:
+                    # Sort by completion time (newest first) and take last 5
+                    completed_tasks.sort(key=lambda x: x.get('completed_at', datetime.min), reverse=True)
+                    recent_completed = completed_tasks[:5]
+                    completed_task_list = "\n\n".join([f"✅ Task #{t['task_id']}\n📝 {t['task']}" for t in recent_completed])
+                    await query.message.reply_text(f"📋 Your Recently Completed Tasks:\n\n{completed_task_list}")
         elif data == 'add_employee':
             await query.answer()
             await query.message.reply_text(
