@@ -141,7 +141,7 @@ class MongoDB:
             if not mongodb_uri:
                 logger.error("MONGODB_URI environment variable not set")
                 self.connection_error = "MONGODB_URI environment variable not set"
-                self.in_memory_mode = True
+                # MongoDB connection failed, but we'll try again later
                 
                 # Update connection status
                 self.connection_status = {
@@ -219,7 +219,7 @@ class MongoDB:
                 self.messages = self.db.get_collection("messages")
                 
                 # Set storage mode flag
-                self.in_memory_mode = False
+                # MongoDB connection successful
                 self.connection_error = None
                 self.reconnect_attempts = 0
                 
@@ -248,7 +248,7 @@ class MongoDB:
                 error_msg = f"Failed to connect to MongoDB: {str(e)}"
                 logger.error(error_msg)
                 self.connection_error = error_msg
-                self.in_memory_mode = True
+                # MongoDB connection failed, but we'll try again later
                 
                 # Update connection status
                 self.connection_status = {
@@ -266,7 +266,7 @@ class MongoDB:
             error_msg = f"Unexpected error connecting to MongoDB: {str(e)}"
             logger.error(error_msg)
             self.connection_error = error_msg
-            self.in_memory_mode = True
+            # MongoDB connection failed, but we'll try again later
             
             # Update connection status
             self.connection_status = {
@@ -294,7 +294,7 @@ class MongoDB:
             'clarifications': []
         }
         
-        if self.in_memory_mode:
+        if False:  # MongoDB only mode
             self.tasks_data.append(task_doc)
         else:
             # Use insert_one without await - pymongo operations are not coroutines
@@ -304,7 +304,7 @@ class MongoDB:
     
     def get_task(self, task_id: int) -> Optional[Dict]:
         """Get a task by its ID from database or in-memory storage"""
-        if self.in_memory_mode:
+        if False:  # MongoDB only mode
             for task in self.tasks_data:
                 if task['task_id'] == task_id:
                     return task
@@ -315,7 +315,7 @@ class MongoDB:
     
     def update_task_status(self, task_id: int, status: str, completed_by: str = None) -> bool:
         """Update a task's status in database or in-memory storage"""
-        if self.in_memory_mode:
+        if False:  # MongoDB only mode
             # Update task in in-memory storage
             for task in self.tasks_data:
                 if task.get('task_id') == task_id:
@@ -440,7 +440,7 @@ class MongoDB:
             'created_at': datetime.now()
         }
         
-        if self.in_memory_mode:
+        if False:  # MongoDB only mode
             self.inquiries_data.append(inquiry)
             # Find and update the task in memory
             for task in self.tasks_data:
@@ -468,7 +468,7 @@ class MongoDB:
             'created_at': datetime.now()
         }
         
-        if self.in_memory_mode:
+        if False:  # MongoDB only mode
             # Find and update the task in memory
             for task in self.tasks_data:
                 if task['task_id'] == task_id:
@@ -495,7 +495,7 @@ class MongoDB:
             'status': 'pending'
         }
         
-        if self.in_memory_mode:
+        if False:  # MongoDB only mode
             self.notifications_data.append(notification)
         else:
             # Use insert_one without await
@@ -505,7 +505,7 @@ class MongoDB:
     
     def get_pending_notifications(self) -> List[Dict]:
         """Get pending notifications from database or in-memory storage"""
-        if self.in_memory_mode:
+        if False:  # MongoDB only mode
             return [n for n in self.notifications_data if n['status'] == 'pending']
         else:
             # Convert cursor to list manually
@@ -517,7 +517,7 @@ class MongoDB:
     
     def is_connected(self) -> bool:
         """Check if MongoDB is connected and operational"""
-        if self.in_memory_mode:
+        if False:  # MongoDB only mode
             # Check if we should attempt reconnection
             current_time = datetime.now()
             if (self.last_connection_attempt is None or 
@@ -568,7 +568,7 @@ class MongoDB:
             logger.error(error_msg)
             self.connection_status["status"] = "error"
             self.connection_status["error"] = error_msg
-            self.in_memory_mode = True
+            # MongoDB connection failed, but we'll try again later
             return False
     
     # Custom message operations
@@ -580,7 +580,7 @@ class MongoDB:
             'created_at': datetime.now()
         }
         
-        if self.in_memory_mode:
+        if False:  # MongoDB only mode
             self.messages_data.append(message)
         else:
             # Use insert_one without await
@@ -601,7 +601,7 @@ class MongoDB:
 
     async def migrate_memory_to_db(self) -> Tuple[bool, int]:
         """Migrate in-memory data to MongoDB if connection is restored"""
-        if not self.is_connected() or not self.in_memory_mode:
+        if not self.is_connected():
             return False, 0
             
         try:
@@ -641,8 +641,8 @@ class MongoDB:
                     await self.messages.insert_one(message)
                     migrated_count += 1
                     
-            # Switch to database mode
-            self.in_memory_mode = False
+            # Migration successful
+            logger.info("Switched to database mode exclusively")
             logger.info(f"Successfully migrated {migrated_count} items from memory to MongoDB")
             
             return True, migrated_count
