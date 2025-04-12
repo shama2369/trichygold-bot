@@ -263,44 +263,72 @@ class MongoDB:
             return result.modified_count > 0
     
     def get_active_tasks(self) -> List[Dict]:
-        """Get all active tasks from database or in-memory storage"""
-        if self.in_memory_mode:
-            # Return tasks from in-memory storage
-            return [task for task in self.tasks_data if task.get('status') == 'active']
-        else:
-            try:
-                # Return tasks from MongoDB
-                cursor = self.tasks.find({"status": "active"})
-                return list(cursor)
-            except Exception as e:
-                logger.error(f"Error getting active tasks from MongoDB: {e}")
-                return []
+        """Get all active tasks from MongoDB"""
+        try:
+            # Ensure we have a valid connection
+            if not self.is_connected():
+                logger.warning("MongoDB not connected. Attempting to reconnect...")
+                self.connect()
+                
+            if not hasattr(self, 'tasks') or self.tasks is None:
+                self.tasks = self.db.tasks
+                
+            # Return tasks from MongoDB
+            cursor = self.tasks.find({"status": {"$ne": "completed"}})
+            tasks = list(cursor)
+            logger.info(f"Retrieved {len(tasks)} active tasks from MongoDB")
+            
+            # Ensure each task has a task_id field
+            for task in tasks:
+                if 'task_id' not in task and '_id' in task:
+                    task['task_id'] = str(task['_id'])
+                    
+            return tasks
+        except Exception as e:
+            logger.error(f"Error getting active tasks from MongoDB: {e}")
+            # Fallback to empty list
+            return []
 
     def get_employees(self):
-        """Get all employees from database or in-memory storage"""
+        """Get all employees from MongoDB"""
         try:
-            if self.in_memory_mode:
-                # Access EMPLOYEES from the global scope in trichygold_botc
-                import sys
-                if 'trichygold_botc' in sys.modules:
-                    from trichygold_botc import EMPLOYEES
-                    employees = [{'name': name, 'chat_id': chat_id} for name, chat_id in EMPLOYEES.items()]
-                    return employees
-                else:
-                    logger.warning("trichygold_botc module not found in sys.modules")
-                    return []
-            else:
-                # MongoDB mode
-                if not self.is_connected():
-                    logger.warning("Cannot get employees: MongoDB not connected")
-                    return []
-                    
-                employees_collection = self.db.employees
-                employees = list(employees_collection.find({}))
-                return employees
+            # Ensure we have a valid connection
+            if not self.is_connected():
+                logger.warning("MongoDB not connected. Attempting to reconnect...")
+                self.connect()
+            
+            # Make sure we have the employees collection
+            if not hasattr(self, 'employees') or self.employees is None:
+                self.employees = self.db.employees
+                
+            # Get all employees from MongoDB
+            employees = list(self.employees.find({}))
+            logger.info(f"Retrieved {len(employees)} employees from MongoDB")
+            
+            # If no employees found in MongoDB, fall back to in-memory EMPLOYEES dictionary
+            if not employees:
+                logger.warning("No employees found in MongoDB, falling back to in-memory EMPLOYEES")
+                try:
+                    import sys
+                    if 'trichygold_botc' in sys.modules:
+                        from trichygold_botc import EMPLOYEES
+                        employees = [{'name': name, 'chat_id': chat_id} for name, chat_id in EMPLOYEES.items()]
+                        
+                        # Try to save these employees to MongoDB for future use
+                        for emp in employees:
+                            self.employees.update_one(
+                                {'chat_id': emp['chat_id']},
+                                {'$set': emp},
+                                upsert=True
+                            )
+                        logger.info(f"Migrated {len(employees)} employees from in-memory to MongoDB")
+                except Exception as inner_e:
+                    logger.error(f"Fallback error getting employees: {inner_e}")
+            
+            return employees
         except Exception as e:
-            logger.error(f"Error getting employees: {e}")
-            # Fallback to in-memory if available
+            logger.error(f"Error getting employees from MongoDB: {e}")
+            # Last resort fallback to in-memory
             try:
                 import sys
                 if 'trichygold_botc' in sys.modules:
@@ -308,56 +336,59 @@ class MongoDB:
                     employees = [{'name': name, 'chat_id': chat_id} for name, chat_id in EMPLOYEES.items()]
                     return employees
             except Exception as inner_e:
-                logger.error(f"Fallback error getting employees: {inner_e}")
+                logger.error(f"Final fallback error getting employees: {inner_e}")
             return []
     
     def get_employee_tasks(self, employee_id):
-        """Get all tasks assigned to a specific employee"""
+        """Get all tasks assigned to a specific employee from MongoDB"""
         try:
-            # Check if we're using in-memory mode
-            if self.in_memory_mode:
-                # Use global TASKS and EMPLOYEES dictionaries (from trichygold_botc.py)
-                from trichygold_botc import TASKS, EMPLOYEES
+            # Ensure we have a valid connection
+            if not self.is_connected():
+                logger.warning("MongoDB not connected. Attempting to reconnect...")
+                self.connect()
                 
-                # Find the employee name from the chat_id
-                employee_name = None
-                for name, chat_id in EMPLOYEES.items():
-                    if chat_id == employee_id:
-                        employee_name = name
-                        break
+            # Make sure we have the tasks and employees collections
+            if not hasattr(self, 'tasks') or self.tasks is None:
+                self.tasks = self.db.tasks
                 
-                if not employee_name:
-                    return []
-                
-                # Get tasks assigned to this employee
-                employee_tasks = []
-                for task_id, task in TASKS.items():
-                    if employee_name in task.get('employees', []):
-                        # Add task_id to the task object
-                        task_copy = task.copy()
-                        task_copy['task_id'] = task_id
-                        employee_tasks.append(task_copy)
-                
-                return employee_tasks
+            if not hasattr(self, 'employees') or self.employees is None:
+                self.employees = self.db.employees
+            
+            # First, find the employee name from the chat_id
+            employee_name = None
+            employee = self.employees.find_one({"chat_id": str(employee_id)})
+            
+            if employee:
+                employee_name = employee.get('name')
+                logger.info(f"Found employee name: {employee_name} for chat_id: {employee_id}")
             else:
-                # Get tasks from MongoDB
-                # We need to find tasks where this employee is in the 'employees' array
-                if not hasattr(self, 'tasks') or self.tasks is None:
-                    self.tasks = self.db.tasks
-                
-                # First, find the employee name from the chat_id
-                employee_name = None
-                if hasattr(self, 'employees') and self.employees is not None:
-                    employee = self.employees.find_one({"chat_id": employee_id})
-                    if employee:
-                        employee_name = employee.get('name')
-                
-                if not employee_name:
-                    return []
-                
-                # Find tasks where this employee is in the employees array
-                cursor = self.tasks.find({"employees": employee_name})
-                return list(cursor)
+                # Fallback to in-memory EMPLOYEES dictionary
+                try:
+                    from trichygold_botc import EMPLOYEES
+                    for name, chat_id in EMPLOYEES.items():
+                        if chat_id == str(employee_id):
+                            employee_name = name
+                            logger.info(f"Found employee name from in-memory: {employee_name}")
+                            break
+                except Exception as inner_e:
+                    logger.error(f"Error accessing in-memory EMPLOYEES: {inner_e}")
+            
+            if not employee_name:
+                logger.warning(f"No employee found with chat_id: {employee_id}")
+                return []
+            
+            # Find tasks where this employee is in the employees array
+            cursor = self.tasks.find({"employees": employee_name, "status": {"$ne": "completed"}})
+            tasks = list(cursor)
+            
+            # Ensure each task has a task_id field
+            for task in tasks:
+                if 'task_id' not in task and '_id' in task:
+                    task['task_id'] = str(task['_id'])
+            
+            logger.info(f"Retrieved {len(tasks)} tasks for employee: {employee_name}")
+            return tasks
+            
         except Exception as e:
             logger.error(f"Error getting employee tasks: {e}")
             return []
