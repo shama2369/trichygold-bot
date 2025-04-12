@@ -25,10 +25,12 @@ class MongoDB:
         self.client = None
         self.db = None
         self.tasks = None
+        self.employees = None
         self.inquiries = None
         self.notifications = None
         self.messages = None
-        self.connect()
+        
+        # Connection tracking variables
         self.connection_status = {
             "status": "disconnected",
             "last_attempt": None,
@@ -36,21 +38,100 @@ class MongoDB:
             "server_info": None,
             "reconnect_attempts": 0
         }
-        
-        # Initialize in-memory fallback storage
-        self.tasks_data = []
-        self.inquiries_data = []
-        self.notifications_data = []
-        self.messages_data = []
+        self.last_connection_attempt = None
+        self.reconnect_attempts = 0
+        self.max_reconnect_attempts = 5
+        self.reconnect_delay = 5  # seconds
         
         # Attempt initial connection
-        self._connect_to_mongodb()
-        
-        # Start background reconnection task if needed
-        if self.in_memory_mode:
-            logger.warning("Using in-memory storage as fallback")
-            # We'll handle reconnection attempts in the is_connected method
+        self.connect()
 
+    def connect(self):
+        """Connect to MongoDB database"""
+        try:
+            # Get MongoDB URI from environment variables or constructor
+            mongodb_uri = self.uri
+            
+            if not mongodb_uri:
+                logger.error("MONGODB_URI environment variable not set")
+                self.connection_status["error"] = "MONGODB_URI environment variable not set"
+                self.connection_status["status"] = "error"
+                return False
+                
+            # Log URI components (without credentials) for debugging
+            uri_parts = re.match(r'mongodb(?:\+srv)?://(?:.*@)?([^/]+)(?:/([^?]+))?', mongodb_uri)
+            if uri_parts:
+                logger.info(f"URI components have been properly URL-encoded")
+                
+            # Set connection timeout options
+            client_options = {
+                'connectTimeoutMS': 30000,
+                'socketTimeoutMS': 30000,
+                'serverSelectionTimeoutMS': 30000
+            }
+            
+            logger.info("Attempting to connect to MongoDB...")
+            self.last_connection_attempt = datetime.now()
+            
+            # Initialize MongoDB client
+            self.client = MongoClient(mongodb_uri, **client_options)
+            logger.info("MongoDB client initialized")
+            
+            # Log connection details for debugging
+            if uri_parts:
+                logger.info(f"MongoDB URI pattern: {uri_parts.group(1)}")
+            logger.info(f"MongoDB client options: {', '.join([f'{k}={v}' for k, v in client_options.items()])}")
+            
+            # Test connection with ping
+            logger.info("Attempting to ping MongoDB server...")
+            self.db = self.client.get_database()
+            self.db.command('ping')
+            
+            # Get server info
+            server_info = self.client.server_info()
+            logger.info(f"Successfully connected to MongoDB. Server version: {server_info.get('version')}")
+            
+            # Initialize collections
+            self.tasks = self.db.tasks
+            self.employees = self.db.employees
+            self.inquiries = self.db.inquiries
+            self.notifications = self.db.notifications
+            self.messages = self.db.messages
+            
+            # Update connection status
+            self.connection_status["status"] = "connected"
+            self.connection_status["error"] = None
+            self.connection_status["server_info"] = server_info
+            self.connection_status["last_attempt"] = self.last_connection_attempt
+            self.reconnect_attempts = 0
+            
+            logger.info("Using MongoDB for storage")
+            return True
+            
+        except Exception as e:
+            error_message = str(e)
+            logger.error(f"Failed to connect to MongoDB: {error_message}")
+            
+            # Update connection status
+            self.connection_status["status"] = "error"
+            self.connection_status["error"] = error_message
+            self.connection_status["last_attempt"] = self.last_connection_attempt
+            
+            return False
+            
+    def is_connected(self) -> bool:
+        """Check if MongoDB is connected"""
+        try:
+            if self.client is None or self.db is None:
+                return False
+                
+            # Try to ping the database
+            self.db.command('ping')
+            return True
+        except Exception as e:
+            logger.warning(f"MongoDB connection check failed: {e}")
+            return False
+            
     def _connect_to_mongodb(self) -> bool:
         """Attempt to connect to MongoDB with retry logic"""
         try:
