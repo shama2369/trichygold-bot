@@ -29,51 +29,48 @@ BOT_TOKEN = os.getenv('BOT_TOKEN', 'YOUR_BOT_TOKEN')
 # Set YOUR_ID to a default value that matches your Telegram ID
 YOUR_ID = os.getenv('ADMIN_ID', '1341853859')  # Default to shameem's ID
 
-# Bot Configuration
-EMPLOYEES = {
-    'shameem': '1341853859',
-    'rehan': '1475715464',
-    
-}
-
 # Initialize database and bot
 from database import db
 application = Application.builder().token(BOT_TOKEN).build()
 app = Quart(__name__)
 
-# Ensure employees are migrated to MongoDB
-def migrate_employees_to_mongodb():
+# Initialize employees directly in MongoDB
+def initialize_employees_in_mongodb():
     try:
         # Check if we have a connection to MongoDB
         if not db.is_connected():
-            logger.warning("Cannot migrate employees: MongoDB not connected")
+            logger.warning("Cannot initialize employees: MongoDB not connected")
             return
             
         # Make sure we have the employees collection
         if not hasattr(db, 'employees') or db.employees is None:
             db.employees = db.db.employees
             
-        # Migrate in-memory EMPLOYEES to MongoDB
-        for name, chat_id in EMPLOYEES.items():
-            # Create employee document
-            employee = {
-                'name': name,
-                'chat_id': chat_id
-            }
-            
-            # Update or insert employee
-            db.employees.update_one(
-                {'chat_id': chat_id},
-                {'$set': employee},
-                upsert=True
-            )
-            
-        logger.info(f"Migrated {len(EMPLOYEES)} employees to MongoDB")
+        # Default employees to add if none exist
+        default_employees = [
+            {'name': 'shameem', 'chat_id': '1341853859'},
+            {'name': 'rehan', 'chat_id': '1475715464'}
+        ]
+        
+        # Check if we already have employees in MongoDB
+        existing_count = db.employees.count_documents({})
+        
+        if existing_count == 0:
+            # Add default employees to MongoDB
+            for employee in default_employees:
+                db.employees.update_one(
+                    {'chat_id': employee['chat_id']},
+                    {'$set': employee},
+                    upsert=True
+                )
+            logger.info(f"Added {len(default_employees)} default employees to MongoDB")
+        else:
+            logger.info(f"Found {existing_count} existing employees in MongoDB")
     except Exception as e:
-        logger.error(f"Error migrating employees to MongoDB: {e}")
+        logger.error(f"Error initializing employees in MongoDB: {e}")
 
-# Run the migration
-migrate_employees_to_mongodb()
+# Run the initialization
+initialize_employees_in_mongodb()
 
 # Global state management
 TASKS: Dict[int, dict] = {}  # task_id: task_info
@@ -98,10 +95,27 @@ task_counter = 0
 
 # Helper Functions
 def get_employee_name(chat_id):
-    for name, eid in EMPLOYEES.items():
-        if eid == str(chat_id):
-            return name
-    return None
+    """Get employee name from MongoDB by chat_id"""
+    try:
+        # Ensure we have a connection to MongoDB
+        if not db.is_connected():
+            logger.warning("Cannot get employee name: MongoDB not connected")
+            return None
+            
+        # Make sure we have the employees collection
+        if not hasattr(db, 'employees') or db.employees is None:
+            db.employees = db.db.employees
+            
+        # Find employee by chat_id
+        employee = db.employees.find_one({'chat_id': str(chat_id)})
+        
+        if employee and 'name' in employee:
+            return employee['name']
+            
+        return None
+    except Exception as e:
+        logger.error(f"Error getting employee name: {e}")
+        return None
 
 def format_task_message(task, minutes):
     return f"📋 New Task Assigned!\n\nTask: {task}\nReminder: Every {minutes} minutes\n\nPlease reply to this message with:\n• Text updates\n• Voice messages\n• Files/documents\n• 'done' when completed"
@@ -660,28 +674,22 @@ async def list_employees_command(update: Update, context: ContextTypes.DEFAULT_T
             await update.message.reply_text("❌ Only admin can use this command.")
             return
         
-        # First, ensure in-memory employees are in MongoDB
+        # Fetch employee data from MongoDB
         await update.message.reply_text("📋 Fetching employee data...")
         
-        # Run migration again to ensure employees are in MongoDB
-        migrate_employees_to_mongodb()
+        # Ensure default employees are in MongoDB
+        initialize_employees_in_mongodb()
         
         # Get employees from MongoDB
         employees = db.get_employees()
         
-        # If still no employees, check in-memory as fallback
         if not employees or len(employees) == 0:
-            # Try to use in-memory EMPLOYEES as fallback
-            if EMPLOYEES:
-                employees = [{'name': name, 'chat_id': chat_id} for name, chat_id in EMPLOYEES.items()]
-                logger.info(f"Using {len(employees)} in-memory employees as fallback")
-            else:
-                await update.message.reply_text(
-                    "📋 No employees registered.\n"
-                    "To add an employee, use:\n"
-                    "/add_employee <name> <telegram_id>"
-                )
-                return
+            await update.message.reply_text(
+                "📋 No employees registered.\n"
+                "To add an employee, use:\n"
+                "/add_employee <name> <telegram_id>"
+            )
+            return
                 
         # Build employee list with task counts
         employee_list = []

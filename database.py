@@ -20,20 +20,15 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 class MongoDB:
-    def __init__(self):
-        # Initialize state variables
+    def __init__(self, uri=None):
+        self.uri = uri or os.getenv('MONGODB_URI')
         self.client = None
         self.db = None
         self.tasks = None
         self.inquiries = None
         self.notifications = None
         self.messages = None
-        self.in_memory_mode = True
-        self.connection_error = None
-        self.last_connection_attempt = None
-        self.reconnect_attempts = 0
-        self.max_reconnect_attempts = 5
-        self.reconnect_delay = 5  # seconds
+        self.connect()
         self.connection_status = {
             "status": "disconnected",
             "last_attempt": None,
@@ -305,38 +300,9 @@ class MongoDB:
             employees = list(self.employees.find({}))
             logger.info(f"Retrieved {len(employees)} employees from MongoDB")
             
-            # If no employees found in MongoDB, fall back to in-memory EMPLOYEES dictionary
-            if not employees:
-                logger.warning("No employees found in MongoDB, falling back to in-memory EMPLOYEES")
-                try:
-                    import sys
-                    if 'trichygold_botc' in sys.modules:
-                        from trichygold_botc import EMPLOYEES
-                        employees = [{'name': name, 'chat_id': chat_id} for name, chat_id in EMPLOYEES.items()]
-                        
-                        # Try to save these employees to MongoDB for future use
-                        for emp in employees:
-                            self.employees.update_one(
-                                {'chat_id': emp['chat_id']},
-                                {'$set': emp},
-                                upsert=True
-                            )
-                        logger.info(f"Migrated {len(employees)} employees from in-memory to MongoDB")
-                except Exception as inner_e:
-                    logger.error(f"Fallback error getting employees: {inner_e}")
-            
             return employees
         except Exception as e:
             logger.error(f"Error getting employees from MongoDB: {e}")
-            # Last resort fallback to in-memory
-            try:
-                import sys
-                if 'trichygold_botc' in sys.modules:
-                    from trichygold_botc import EMPLOYEES
-                    employees = [{'name': name, 'chat_id': chat_id} for name, chat_id in EMPLOYEES.items()]
-                    return employees
-            except Exception as inner_e:
-                logger.error(f"Final fallback error getting employees: {inner_e}")
             return []
     
     def get_employee_tasks(self, employee_id):
@@ -361,17 +327,6 @@ class MongoDB:
             if employee:
                 employee_name = employee.get('name')
                 logger.info(f"Found employee name: {employee_name} for chat_id: {employee_id}")
-            else:
-                # Fallback to in-memory EMPLOYEES dictionary
-                try:
-                    from trichygold_botc import EMPLOYEES
-                    for name, chat_id in EMPLOYEES.items():
-                        if chat_id == str(employee_id):
-                            employee_name = name
-                            logger.info(f"Found employee name from in-memory: {employee_name}")
-                            break
-                except Exception as inner_e:
-                    logger.error(f"Error accessing in-memory EMPLOYEES: {inner_e}")
             
             if not employee_name:
                 logger.warning(f"No employee found with chat_id: {employee_id}")
