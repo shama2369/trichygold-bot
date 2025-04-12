@@ -41,6 +41,40 @@ from database import db
 application = Application.builder().token(BOT_TOKEN).build()
 app = Quart(__name__)
 
+# Ensure employees are migrated to MongoDB
+def migrate_employees_to_mongodb():
+    try:
+        # Check if we have a connection to MongoDB
+        if not db.is_connected():
+            logger.warning("Cannot migrate employees: MongoDB not connected")
+            return
+            
+        # Make sure we have the employees collection
+        if not hasattr(db, 'employees') or db.employees is None:
+            db.employees = db.db.employees
+            
+        # Migrate in-memory EMPLOYEES to MongoDB
+        for name, chat_id in EMPLOYEES.items():
+            # Create employee document
+            employee = {
+                'name': name,
+                'chat_id': chat_id
+            }
+            
+            # Update or insert employee
+            db.employees.update_one(
+                {'chat_id': chat_id},
+                {'$set': employee},
+                upsert=True
+            )
+            
+        logger.info(f"Migrated {len(EMPLOYEES)} employees to MongoDB")
+    except Exception as e:
+        logger.error(f"Error migrating employees to MongoDB: {e}")
+
+# Run the migration
+migrate_employees_to_mongodb()
+
 # Global state management
 TASKS: Dict[int, dict] = {}  # task_id: task_info
 INQUIRIES: Dict[int, dict] = {}  # inquiry_id: inquiry_info
@@ -625,34 +659,61 @@ async def list_employees_command(update: Update, context: ContextTypes.DEFAULT_T
         if chat_id != YOUR_ID:
             await update.message.reply_text("❌ Only admin can use this command.")
             return
-            
-        # Get employees exclusively from MongoDB
+        
+        # First, ensure in-memory employees are in MongoDB
+        await update.message.reply_text("📋 Fetching employee data...")
+        
+        # Run migration again to ensure employees are in MongoDB
+        migrate_employees_to_mongodb()
+        
+        # Get employees from MongoDB
         employees = db.get_employees()
         
+        # If still no employees, check in-memory as fallback
         if not employees or len(employees) == 0:
-            await update.message.reply_text(
-                "📋 No employees registered.\n"
-                "To add an employee, use:\n"
-                "/add_employee <name> <telegram_id>"
-            )
-            return
+            # Try to use in-memory EMPLOYEES as fallback
+            if EMPLOYEES:
+                employees = [{'name': name, 'chat_id': chat_id} for name, chat_id in EMPLOYEES.items()]
+                logger.info(f"Using {len(employees)} in-memory employees as fallback")
+            else:
+                await update.message.reply_text(
+                    "📋 No employees registered.\n"
+                    "To add an employee, use:\n"
+                    "/add_employee <name> <telegram_id>"
+                )
+                return
                 
         # Build employee list with task counts
         employee_list = []
+        logger.info(f"Building list for {len(employees)} employees")
         
         for employee in employees:
             name = employee.get('name')
             emp_id = employee.get('chat_id')
             
+            if not name or not emp_id:
+                logger.warning(f"Skipping employee with missing data: {employee}")
+                continue
+                
+            logger.info(f"Getting tasks for employee: {name} (ID: {emp_id})")
+            
             # Get tasks for this employee from MongoDB
             tasks = db.get_employee_tasks(emp_id)
             
             # Count active and total tasks
-            active_tasks = sum(1 for task in tasks if task.get('status') == 'active')
+            active_tasks = sum(1 for task in tasks if task.get('status') != 'completed')
             total_tasks = len(tasks)
             
             employee_list.append(f"👤 {name}\n   📱 ID: {emp_id}\n   📋 Tasks: {active_tasks} active, {total_tasks} total")
         
+        if not employee_list:
+            await update.message.reply_text(
+                "📋 No valid employees found.\n"
+                "To add an employee, use:\n"
+                "/add_employee <name> <telegram_id>"
+            )
+            return
+            
         message = "📋 Registered Employees:\n\n" + "\n\n".join(employee_list)
         message += "\n\nTo add an employee:\n/add_employee <name> <telegram_id>"
         
