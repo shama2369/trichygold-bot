@@ -1201,7 +1201,7 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
                     "/taskdone \- Same as /tasks\n"
                     "/mytasks \- Same as /tasks\n"
                 )
-                await query.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN)
+            await query.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN)
         elif data == 'cmd_inquire':
             await query.message.reply_text("Use /inquire <task_id> <your question>")
         elif data == 'cmd_taskdone':
