@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 # No dotenv dependency needed
 
 # Get and log the bot token (without showing the full token for security)
-BOT_TOKEN = os.getenv('BOT_TOKEN', '')
+BOT_TOKEN = os.getenv('BOT_TOKEN', '7358468280:AAEeJFelkjQv7f3DpL87uFffQ0-nBCBGuw8')
 if not BOT_TOKEN:
     logger.error("BOT_TOKEN environment variable not set!")
     
