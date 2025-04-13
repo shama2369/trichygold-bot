@@ -57,6 +57,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.message.from_user
     logger.info(f"Start command received from user {user.id} ({user.username})")
     
+    # Send an immediate response to prevent other bots from intercepting
+    await update.message.reply_text("🔄 Starting TrichyGold Task Manager...")
+    
     # Different welcome message for admin vs employees
     if chat_id == YOUR_ID:
         message = f"👋 Welcome to TrichyGold Task Manager, Admin!"
@@ -2382,15 +2385,31 @@ async def webhook():
         
         if update:
             logger.info(f"Processing update ID: {update.update_id}")
+            
+            # Log more detailed information about the update
+            if update.message:
+                logger.info(f"Message from {update.message.from_user.id}: {update.message.text}")
+                if update.message.text and update.message.text.startswith('/'):
+                    logger.info(f"Command detected: {update.message.text}")
+            elif update.callback_query:
+                logger.info(f"Callback query from {update.callback_query.from_user.id}: {update.callback_query.data}")
+            
             # Process the update through the application
-            await application.process_update(update)
+            try:
+                await application.process_update(update)
+                logger.info(f"Successfully processed update ID: {update.update_id}")
+            except Exception as process_error:
+                logger.error(f"Error processing update: {process_error}")
+                # Still return OK to Telegram to prevent retries
+                return "OK", 200
         else:
             logger.warning("Received invalid update data")
             
         return "OK", 200
     except Exception as e:
         logger.error(f"Error in webhook handler: {e}")
-        return "Error", 500
+        # Still return OK to Telegram to prevent retries
+        return "OK", 200
 
 async def main() -> None:
     """Start the bot."""
@@ -2505,13 +2524,37 @@ async def main() -> None:
             webhook_url = f"{service_url}/webhook"
             logger.info(f"Running on Render. Setting webhook to: {webhook_url}")
             
-            # Log_all_updates is already registered above, no need to register it again
+            # First, delete any existing webhook to ensure a clean setup
+            logger.info("Deleting existing webhook...")
+            await application.bot.delete_webhook()
             
-            # Application is already initialized above
+            # Set the webhook with the correct parameters
+            logger.info(f"Setting webhook to: {webhook_url}")
+            await application.bot.set_webhook(webhook_url, allowed_updates=['message', 'callback_query', 'inline_query'])
             
-            # Set the webhook
-            await application.bot.set_webhook(webhook_url)
+            # Register commands with BotFather
+            logger.info("Registering commands with BotFather...")
+            from telegram import BotCommand
+            commands = [
+                BotCommand("start", "Start the bot and show main menu"),
+                BotCommand("help", "Show help information"),
+                BotCommand("assign", "Assign tasks to employees"),
+                BotCommand("tasks", "View and manage tasks"),
+                BotCommand("list_employees", "List all employees"),
+                BotCommand("add_employee", "Add a new employee"),
+                BotCommand("remove_employee", "Remove an employee"),
+                BotCommand("dbstatus", "Check database connection status"),
+                BotCommand("add_test_employees", "Add test employees to database")
+            ]
+            await application.bot.set_my_commands(commands)
             
+            # Verify webhook setup
+            webhook_info = await application.bot.get_webhook_info()
+            logger.info(f"Webhook URL: {webhook_info.url}")
+            logger.info(f"Pending update count: {webhook_info.pending_update_count}")
+            if webhook_info.last_error_message:
+                logger.warning(f"Webhook last error: {webhook_info.last_error_message}")
+                
             # Start the webhook server
             logger.info(f"Starting webhook server on port {port}")
             await server.serve()
