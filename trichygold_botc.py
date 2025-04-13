@@ -1147,11 +1147,10 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
                     status += f"\n❌ Failed to send to {fail_count} employees"
                 await update.message.reply_text(status)
                 context.user_data.clear()
-
-        except Exception as e:
-            logger.error(f"Error in handle_media_message: {e}")
-            await update.message.reply_text("❌ An error occurred while processing your message.")
-            context.user_data.clear()
+    except Exception as e:
+        logger.error(f"Error in handle_media_message: {e}")
+        await update.message.reply_text("❌ An error occurred while processing your message.")
+        context.user_data.clear()
 
 async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle button callbacks"""
