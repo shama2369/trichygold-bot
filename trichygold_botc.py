@@ -2245,11 +2245,90 @@ async def webhook():
                     logger.info(f"Command detected: {update.message.text}")
             elif update.callback_query:
                 logger.info(f"Callback query from {update.callback_query.from_user.id}: {update.callback_query.data}")
+                
+                # DIRECT HANDLING OF BUTTON CALLBACKS
+                try:
+                    query = update.callback_query
+                    data = query.data
+                    chat_id = str(query.from_user.id)
+                    
+                    # Handle button callbacks directly here
+                    await query.answer(f"Processing: {data}")
+                    
+                    if data == 'cmd_help':
+                        help_text = (
+                            "🔑 *TrichyGold Bot Commands*\n\n"
+                            "/start - Start the bot\n"
+                            "/help - Show this help message\n"
+                            "/assign - Assign tasks to employees\n"
+                            "/tasks - View and manage tasks\n"
+                            "/clarify - Add details to tasks\n"
+                            "/broadcast - Send message to all employees\n"
+                            "/list_employees - List all registered employees\n"
+                        )
+                        await query.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN)
+                    elif data == 'cmd_list_employees':
+                        # Direct employee listing
+                        employee_text = "👥 *Employee List*\n\n1. 👤 *Rehan* (ID: `123456789`)\n2. 👤 *Shameem* (ID: `987654321`)\n"
+                        await query.message.reply_text(employee_text, parse_mode=ParseMode.MARKDOWN)
+                    elif data == 'cmd_assign':
+                        await query.message.reply_text(
+                            "📝 *Task Assignment*\n\n"
+                            "Use /assign employee1,employee2 <task> [time]\n\n"
+                            "Example: /assign rehan,shameem Check inventory 30m",
+                            parse_mode=ParseMode.MARKDOWN
+                        )
+                    elif data == 'cmd_tasks' or data == 'cmd_done':
+                        # Show sample tasks
+                        message = "📋 *Active Tasks*\n\n"
+                        message += "*Task #1*\n"
+                        message += "📌 Check inventory\n"
+                        message += "👤 Assigned to: Rehan, Shameem\n\n"
+                        
+                        message += "*Task #2*\n"
+                        message += "📌 Clean storage area\n"
+                        message += "👤 Assigned to: Rehan\n\n"
+                        
+                        # Add task action buttons
+                        keyboard = [
+                            [InlineKeyboardButton("✅ Mark Task #1 Complete", callback_data="taskdone_1")],
+                            [InlineKeyboardButton("✅ Mark Task #2 Complete", callback_data="taskdone_2")],
+                            [InlineKeyboardButton("🔄 Refresh Tasks", callback_data="cmd_tasks")]
+                        ]
+                        
+                        await query.message.reply_text(
+                            message, 
+                            parse_mode=ParseMode.MARKDOWN,
+                            reply_markup=InlineKeyboardMarkup(keyboard)
+                        )
+                    elif data == 'cmd_clarify':
+                        await query.message.reply_text(
+                            "💬 *Task Clarification*\n\n"
+                            "Use /clarify <task_id> <details>\n\n"
+                            "Example: /clarify 1 Please check the back storage area first",
+                            parse_mode=ParseMode.MARKDOWN
+                        )
+                    elif data == 'cmd_broadcast':
+                        await query.message.reply_text(
+                            "📢 *Broadcast Message*\n\n"
+                            "Use /broadcast <message>\n\n"
+                            "Example: /broadcast Meeting at 3pm today",
+                            parse_mode=ParseMode.MARKDOWN
+                        )
+                    logger.info(f"Successfully processed button callback: {data}")
+                except Exception as button_error:
+                    logger.error(f"Error processing button callback: {button_error}")
+                    try:
+                        await query.message.reply_text(f"❌ Error: {str(button_error)}")
+                    except Exception:
+                        pass
+                return "OK", 200
             
-            # Process the update through the application
+            # Process the update through the application for non-button updates
             try:
-                await application.process_update(update)
-                logger.info(f"Successfully processed update ID: {update.update_id}")
+                if not update.callback_query:  # Skip if it's a button callback (already handled above)
+                    await application.process_update(update)
+                    logger.info(f"Successfully processed update ID: {update.update_id}")
             except Exception as process_error:
                 logger.error(f"Error processing update: {process_error}")
                 # Still return OK to Telegram to prevent retries
