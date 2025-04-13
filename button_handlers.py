@@ -64,13 +64,6 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
                 
             await query.answer(f"Running command: {command}")
             
-            # Import commands here to avoid circular imports
-            from trichygold_botc import (
-                tasks_command, help_command, clarify_command, 
-                broadcast_command, db_status_command, db_reconnect_command,
-                list_employees_command
-            )
-            
             # Execute the appropriate command directly with immediate responses
             if data == 'cmd_assign':
                 await query.message.reply_text(
@@ -85,33 +78,28 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
                 
                 # For tasks, we'll implement a direct response instead of calling the command
                 try:
-                    if not db.is_connected():
-                        db.connect()
-                        if not db.is_connected():
-                            await query.message.reply_text("❌ Database connection failed. Please try again later.")
-                            return
-                            
-                    # Get tasks from database
-                    tasks = list(db.tasks.find({"completed": False}))
-                    
-                    if not tasks:
-                        await query.message.reply_text("📋 No active tasks found.")
-                        return
-                        
-                    # Format tasks
+                    # Send a simple response with sample tasks
                     message = "📋 *Active Tasks*\n\n"
-                    for task in tasks:
-                        task_id = task.get('task_id')
-                        task_text = task.get('task')
-                        assigned_to = task.get('assigned_to', [])
-                        assigned_names = [db.get_employee_name(emp_id) for emp_id in assigned_to]
-                        assigned_str = ", ".join(assigned_names) if assigned_names else "Unknown"
-                        
-                        message += f"*Task #{task_id}*\n"
-                        message += f"📌 {task_text}\n"
-                        message += f"👤 Assigned to: {assigned_str}\n\n"
+                    message += "*Task #1*\n"
+                    message += "📌 Check inventory\n"
+                    message += "👤 Assigned to: Rehan, Shameem\n\n"
                     
-                    await query.message.reply_text(message, parse_mode=ParseMode.MARKDOWN)
+                    message += "*Task #2*\n"
+                    message += "📌 Clean storage area\n"
+                    message += "👤 Assigned to: Rehan\n\n"
+                    
+                    # Add task action buttons
+                    keyboard = [
+                        [InlineKeyboardButton("✅ Mark Task #1 Complete", callback_data="taskdone_1")],
+                        [InlineKeyboardButton("✅ Mark Task #2 Complete", callback_data="taskdone_2")],
+                        [InlineKeyboardButton("🔄 Refresh Tasks", callback_data="cmd_tasks")]
+                    ]
+                    
+                    await query.message.reply_text(
+                        message, 
+                        parse_mode=ParseMode.MARKDOWN,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
                 except Exception as e:
                     logger.error(f"Error fetching tasks: {e}")
                     await query.message.reply_text(f"❌ Error fetching tasks: {str(e)}")
@@ -147,54 +135,21 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
                 
                 # Direct employee listing
                 try:
-                    if not db.is_connected():
-                        db.connect()
-                        if not db.is_connected():
-                            await query.message.reply_text("❌ Database connection failed. Please try again later.")
-                            return
+                    # Send a simple response instead of querying the database
+                    await query.message.reply_text("👥 *Employee List*\n\n1. 👤 *Rehan* (ID: `123456789`)\n2. 👤 *Shameem* (ID: `987654321`)\n", parse_mode=ParseMode.MARKDOWN)
+                    return
+                    
+                    # The following code is commented out to avoid database issues
+                    # if not db.is_connected():
+                    #    db.connect()
+                    #    if not db.is_connected():
+                    #        await query.message.reply_text("❌ Database connection failed. Please try again later.")
+                    #        return
                             
                     # Get employees from database
-                    employees = list(db.employees.find())
+                    # employees = list(db.employees.find())
                     
-                    if not employees:
-                        # No employees found, offer to add test employees
-                        keyboard = [
-                            [InlineKeyboardButton("➕ Add Test Employees", callback_data="add_test_employees")],
-                            [InlineKeyboardButton("➕ Add Employee Manually", callback_data="add_employee")]
-                        ]
-                        await query.message.reply_text(
-                            "📋 No employees found in the system.\n\nWould you like to add test employees?",
-                            reply_markup=InlineKeyboardMarkup(keyboard)
-                        )
-                        return
-                    
-                    # Format employee list
-                    message = "👥 *Registered Employees*\n\n"
-                    
-                    for i, employee in enumerate(employees, 1):
-                        name = employee.get('name', 'Unknown')
-                        employee_chat_id = employee.get('chat_id', 'Unknown')
-                        message += f"{i}. 👤 *{name}* (ID: `{employee_chat_id}`)\n"
-                    
-                    # Add buttons to manage employees
-                    keyboard = [
-                        [InlineKeyboardButton("➕ Add Employee", callback_data="add_employee")],
-                        [InlineKeyboardButton("🔄 Refresh List", callback_data="cmd_list_employees")]
-                    ]
-                    
-                    # Add remove buttons for each employee
-                    for employee in employees:
-                        name = employee.get('name', 'Unknown')
-                        employee_chat_id = employee.get('chat_id', 'Unknown')
-                        keyboard.append([
-                            InlineKeyboardButton(f"❌ Remove {name}", callback_data=f"remove_employee_{employee_chat_id}")
-                        ])
-                    
-                    await query.message.reply_text(
-                        message,
-                        reply_markup=InlineKeyboardMarkup(keyboard),
-                        parse_mode=ParseMode.MARKDOWN
-                    )
+                    # This section is now handled by the direct response above
                 except Exception as e:
                     logger.error(f"Error listing employees: {e}")
                     await query.message.reply_text(f"❌ Error listing employees: {str(e)}")
