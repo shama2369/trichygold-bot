@@ -41,7 +41,9 @@ from database import db
 # Import employee handlers
 from employee_handlers import add_employee_command, remove_employee_command, list_employees_command
 # Import test employees handlers
-from test_employees import add_test_employees_command, handle_add_test_employees_callback
+from test_employees import add_test_employees_command
+# Import button handlers
+from button_handlers import handle_button_callback
 application = Application.builder().token(BOT_TOKEN).build()
 app = Quart(__name__)
 
@@ -2312,41 +2314,12 @@ async def db_migrate_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     # Migrate data
     try:
         # TODO: Implement data migration logic
-    # Extract name and chat_id from arguments
-    name = context.args[0]
-    employee_chat_id = context.args[1]
-    
-    # Validate employee data
-    from validators import validate_employee_data
-    is_valid, error_message = validate_employee_data(name, employee_chat_id)
-    if not is_valid:
-        await update.message.reply_text(f"⚠️ {error_message}")
-        return
-    
-    # Add employee to database
-    success, message, employee_data = db.add_employee(name, employee_chat_id)
-    
-    if success:
-        # Confirm to admin
         await update.message.reply_text(
-            f"✅ Employee added successfully!\n\n"
-            f"👤 Name: {name}\n"
-            f"📱 Chat ID: {employee_chat_id}"
+            "✅ Data migration feature is not yet implemented."
         )
-        
-        # Try to notify the employee if possible
-        try:
-            await context.bot.send_message(
-                chat_id=employee_chat_id,
-                text=f"👋 Welcome to TrichyGold Task Manager! You have been added as an employee by the administrator."
-            )
-        except Exception as e:
-            logger.error(f"Failed to notify new employee: {e}")
-            await update.message.reply_text(
-                "⚠️ Employee added, but could not send welcome message. The chat ID might be incorrect or the user hasn't started the bot yet."
-            )
-    else:
-        await update.message.reply_text(f"❌ {message}")
+    except Exception as e:
+        logger.error(f"Error in db_migrate_command: {e}")
+        await update.message.reply_text(f"❌ Error migrating data: {str(e)}")
 
 async def remove_employee_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /remove_employee command to remove an employee from the system"""
@@ -2449,7 +2422,6 @@ async def main() -> None:
         application.add_handler(CommandHandler("dbmigrate", db_migrate_command))
         application.add_handler(CommandHandler("add_employee", add_employee_command))
         application.add_handler(CommandHandler("remove_employee", remove_employee_command))
-        application.add_handler(CommandHandler("add_test_employees", add_test_employees_command))
         
         # Media message handler for clarifications, inquiries, and broadcasts
         # Only handle non-command messages
