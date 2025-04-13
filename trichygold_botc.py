@@ -38,8 +38,121 @@ logger.info(f"Admin ID set to: {YOUR_ID}")
 
 # Initialize database and bot
 from database import db
+# Import employee handlers
+from employee_handlers import add_employee_command, remove_employee_command, list_employees_command
 application = Application.builder().token(BOT_TOKEN).build()
 app = Quart(__name__)
+
+# Store the admin ID in bot_data for access in handlers
+application.bot_data['ADMIN_ID'] = YOUR_ID
+
+# Command handlers
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Send a message when the command /start is issued."""
+    chat_id = str(update.message.chat_id)
+    user = update.message.from_user
+    logger.info(f"Start command received from user {user.id} ({user.username})")
+    
+    # Different welcome message for admin vs employees
+    if chat_id == YOUR_ID:
+        message = f"👋 Welcome to TrichyGold Task Manager, Admin!"
+        
+        # Create keyboard with admin options
+        keyboard = [
+            [InlineKeyboardButton("📋 List Employees", callback_data="cmd_list_employees")],
+            [InlineKeyboardButton("📝 Assign Task", callback_data="cmd_assign")],
+            [InlineKeyboardButton("📊 View Tasks", callback_data="cmd_tasks")],
+            [InlineKeyboardButton("❓ Help", callback_data="cmd_help")]
+        ]
+    else:
+        # Check if this is a registered employee
+        employee_name = None
+        if db.is_connected():
+            employee = db.employees.find_one({"chat_id": chat_id})
+            if employee:
+                employee_name = employee.get("name")
+        
+        if employee_name:
+            message = f"👋 Welcome back, {employee_name}!"
+            
+            # Create keyboard with employee options
+            keyboard = [
+                [InlineKeyboardButton("📊 My Tasks", callback_data="cmd_mytasks")],
+                [InlineKeyboardButton("❓ Ask Question", callback_data="cmd_inquire")],
+                [InlineKeyboardButton("📢 Notify Admin", callback_data="cmd_notify")],
+                [InlineKeyboardButton("❓ Help", callback_data="cmd_help")]
+            ]
+        else:
+            message = "👋 Welcome to TrichyGold Task Manager!"
+            message += "\n\n⚠️ You are not registered as an employee. Please contact the administrator."
+            
+            # Simple keyboard for non-registered users
+            keyboard = [
+                [InlineKeyboardButton("❓ Help", callback_data="cmd_help")]
+            ]
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text(message, reply_markup=reply_markup)
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Send a message when the command /help is issued."""
+    chat_id = str(update.message.chat_id)
+    
+    # Different help message for admin vs employees
+    if chat_id == YOUR_ID:
+        help_text = (
+            "🔑 *Admin Commands*\n\n"
+            "/assign \- Assign tasks to employees\n"
+            "Format: /assign employee1,employee2 task \[time\]\n\n"
+            "/tasks \- View and manage all active tasks\n"
+            "Format: /tasks \[task\_id\]\n\n"
+            "/clarify \- Add details to tasks\n"
+            "Format: /clarify task\_id details\n\n"
+            "/broadcast \- Send message to all employees\n"
+            "Format: /broadcast message\n\n"
+            "/list\_employees \- View all registered employees\n\n"
+            "/add\_employee \- Add a new employee\n"
+            "Format: /add\_employee name chat\_id\n\n"
+            "/remove\_employee \- Remove an employee\n"
+            "Format: /remove\_employee chat\_id\n\n"
+            "/task \- View tasks assigned to a specific employee\n"
+            "Format: /task employee\_name\n\n"
+            "/dbstatus \- Check database connection status\n\n"
+            "/help \- Show this message\n\n"
+            "*Legacy Commands* \(use /tasks instead\):\n"
+            "/done \- Same as /tasks\n"
+        )
+        
+        # Create keyboard with admin quick actions
+        keyboard = [
+            [InlineKeyboardButton("📋 List Employees", callback_data="cmd_list_employees")],
+            [InlineKeyboardButton("📝 Assign Task", callback_data="cmd_assign")],
+            [InlineKeyboardButton("📊 View Tasks", callback_data="cmd_tasks")]
+        ]
+    else:
+        help_text = (
+            "👤 *Employee Commands*\n\n"
+            "/tasks \- View your tasks and mark them as completed\n"
+            "Format: /tasks \[task\_id\]\n\n"
+            "/inquire \- Ask questions about tasks\n"
+            "Format: /inquire task\_id question\n\n"
+            "/notify \- Send notice to admin\n"
+            "Format: /notify message\n\n"
+            "/help \- Show this message\n\n"
+            "*Legacy Commands* \(use /tasks instead\):\n"
+            "/taskdone \- Same as /tasks\n"
+            "/mytasks \- Same as /tasks\n"
+        )
+        
+        # Create keyboard with employee quick actions
+        keyboard = [
+            [InlineKeyboardButton("📊 My Tasks", callback_data="cmd_mytasks")],
+            [InlineKeyboardButton("❓ Ask Question", callback_data="cmd_inquire")],
+            [InlineKeyboardButton("📢 Notify Admin", callback_data="cmd_notify")]
+        ]
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text(help_text, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
 
 # Initialize employees directly in MongoDB
 def initialize_employees_in_mongodb():
@@ -1160,6 +1273,8 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
         data = query.data
         chat_id = str(update.callback_query.from_user.id)
         
+        logger.info(f"Processing button callback: {data} from user {chat_id}")
+        
         # Handle task action buttons
         if data.startswith('taskdone_'):
             task_id = int(data.split('_')[1])
@@ -1217,12 +1332,34 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
             # call send_active_tasks directly with the chat_id
             await query.message.reply_text("📋 Fetching your tasks...")
             await send_active_tasks(chat_id, context)
+        elif data == 'cmd_list_employees':
+            # Create a mock update to call the list_employees_command
+            mock_update = Update(update_id=0, message=query.message)
+            await list_employees_command(mock_update, context)
         elif data == 'add_employee':
             await query.answer()
             await query.message.reply_text(
                 "To add a new employee, use the format:\n"
                 "/add_employee <name> <chat_id>"
             )
+        elif data.startswith('remove_employee_'):
+            # Extract employee chat ID from callback data
+            employee_chat_id = data.split('_')[2]
+            
+            # Only admin can remove employees
+            if chat_id != YOUR_ID:
+                await query.answer("⛔ Only administrators can remove employees")
+                return
+                
+            # Create a mock update with the employee chat ID as an argument
+            mock_update = Update(update_id=0, message=query.message)
+            context.args = [employee_chat_id]
+            
+            # Call the remove_employee_command function
+            await remove_employee_command(mock_update, context)
+            
+            # Show updated employee list
+            await list_employees_command(mock_update, context)
             
     except Exception as e:
         logger.error(f"Error in handle_button_callback: {e}")
