@@ -25,12 +25,21 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Get environment variables
+# Reload environment variables to ensure they're fresh
+load_dotenv(override=True)
+
+# Get and log the bot token (without showing the full token for security)
 BOT_TOKEN = os.getenv('BOT_TOKEN', 'YOUR_BOT_TOKEN')
+token_preview = BOT_TOKEN[:10] + '...' if BOT_TOKEN and len(BOT_TOKEN) > 10 else 'Not set'
+logger.info(f"Using bot token: {token_preview}")
+
 # Set YOUR_ID to a default value that matches your Telegram ID
 YOUR_ID = os.getenv('ADMIN_ID', '1341853859')  # Default to shameem's ID
+logger.info(f"Admin ID set to: {YOUR_ID}")
 
 # Initialize database and bot
 from database import db
+from employee_handlers import add_employee_command, remove_employee_command
 application = Application.builder().token(BOT_TOKEN).build()
 app = Quart(__name__)
 
@@ -1085,16 +1094,10 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
                 # Set empty args for the context
                 context.args = []
                 
-                # Create a mock update object to pass to tasks_command
-                mock_update = Update(update_id=update.update_id, callback_query=None)
-                mock_update._unfreeze()
-                mock_update.message = query.message
-                mock_update.message.from_user = query.from_user
-                mock_update.message.chat_id = query.message.chat_id
-                mock_update._freeze()
-                
-                # Execute the tasks_command directly
-                await tasks_command(mock_update, context)
+                # Instead of creating a mock update which causes errors,
+                # call send_active_tasks directly with the chat_id
+                await query.message.reply_text("📋 Fetching your tasks...")
+                await send_active_tasks(chat_id, context)
             elif data == 'cmd_clarify':
                 await query.message.reply_text("Use /clarify <task_id> <additional details>")
             elif data == 'cmd_broadcast':
@@ -1172,29 +1175,17 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
             elif data == 'cmd_inquire':
                 await query.message.reply_text("Use /inquire <task_id> <your question>")
             elif data == 'cmd_taskdone':
-                # Create a mock update object to pass to tasks_command
-                mock_update = Update(update_id=update.update_id, callback_query=None)
-                mock_update._unfreeze()
-                mock_update.message = query.message
-                mock_update.message.from_user = query.from_user
-                mock_update.message.chat_id = query.message.chat_id
-                mock_update._freeze()
-                
-                # Execute the tasks_command directly
-                await tasks_command(mock_update, context)
+                # Instead of creating a mock update which causes errors,
+                # call send_active_tasks directly with the chat_id
+                await query.message.reply_text("📋 Fetching your tasks...")
+                await send_active_tasks(chat_id, context)
             elif data == 'cmd_notify':
                 await query.message.reply_text("Use /notify <message>")
             elif data == 'cmd_mytasks':
-                # Create a mock update object to pass to tasks_command
-                mock_update = Update(update_id=update.update_id, callback_query=None)
-                mock_update._unfreeze()
-                mock_update.message = query.message
-                mock_update.message.from_user = query.from_user
-                mock_update.message.chat_id = query.message.chat_id
-                mock_update._freeze()
-                
-                # Execute the tasks_command directly
-                await tasks_command(mock_update, context)
+                # Instead of creating a mock update which causes errors,
+                # call send_active_tasks directly with the chat_id
+                await query.message.reply_text("📋 Fetching your tasks...")
+                await send_active_tasks(chat_id, context)
         elif data == 'add_employee':
             await query.answer()
             await query.message.reply_text(
@@ -1761,54 +1752,136 @@ async def db_reconnect_command(update: Update, context: ContextTypes.DEFAULT_TYP
 
 async def db_migrate_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /dbmigrate command to migrate in-memory data to MongoDB"""
-    chat_id = update.message.chat_id
-    user_id = str(chat_id)
+    chat_id = str(update.message.chat_id)
     
-    # Only allow admin to migrate data
-    if user_id != YOUR_ID:
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text="⚠️ Sorry, only admin can migrate database data."
-        )
-        return
-    
-    # Check if migration is needed
-    if not db.in_memory_mode:
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text="ℹ️ No migration needed. Already using MongoDB for storage."
-        )
+    # Only admin can migrate data
+    if chat_id != YOUR_ID:
+        await update.message.reply_text("⛔ Sorry, only administrators can migrate data.")
         return
     
     # Check if MongoDB is connected
     if not db.is_connected():
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text="❌ Cannot migrate data. MongoDB is not connected.\n\nUse /dbreconnect to try reconnecting first."
+        await update.message.reply_text(
+            "⚠️ Cannot migrate data: MongoDB not connected.\n\n"
+            "Use /dbreconnect to attempt reconnection."
         )
         return
     
-    # Send initial message
-    status_message = await context.bot.send_message(
-        chat_id=chat_id,
-        text="🔄 Migrating in-memory data to MongoDB..."
-    )
-    
-    # Perform migration
+    # Attempt to migrate data
     success, migrated_count = await db.migrate_memory_to_db()
     
     if success:
-        await context.bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=status_message.message_id,
-            text=f"✅ Successfully migrated {migrated_count} items to MongoDB!\n\nStorage mode switched to MongoDB.\n\nUse /dbstatus to see connection details."
+        await update.message.reply_text(
+            f"✅ Successfully migrated {migrated_count} items to MongoDB.\n\n"
+            f"Now using database storage exclusively."
         )
     else:
-        await context.bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=status_message.message_id,
-            text=f"❌ Failed to migrate data to MongoDB.\n\nStill using in-memory storage.\n\nUse /dbstatus to see connection details."
+        await update.message.reply_text(
+            f"❌ Failed to migrate data to MongoDB.\n\nStill using in-memory storage.\n\nUse /dbstatus to see connection details."
         )
+
+async def add_employee_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /add_employee command to add a new employee to the system"""
+    chat_id = str(update.message.chat_id)
+    
+    # Only admin can add employees
+    if chat_id != YOUR_ID:
+        await update.message.reply_text("⛔ Sorry, only administrators can add employees.")
+        return
+    
+    # Check if we have the required arguments
+    if not context.args or len(context.args) < 2:
+        await update.message.reply_text(
+            "⚠️ Please provide employee name and chat ID.\n\n"
+            "Format: /add_employee <name> <chat_id>\n"
+            "Example: /add_employee john 123456789"
+        )
+        return
+    
+    # Extract name and chat_id from arguments
+    name = context.args[0]
+    employee_chat_id = context.args[1]
+    
+    # Validate employee data
+    from validators import validate_employee_data
+    is_valid, error_message = validate_employee_data(name, employee_chat_id)
+    if not is_valid:
+        await update.message.reply_text(f"⚠️ {error_message}")
+        return
+    
+    # Add employee to database
+    success, message, employee_data = db.add_employee(name, employee_chat_id)
+    
+    if success:
+        # Confirm to admin
+        await update.message.reply_text(
+            f"✅ Employee added successfully!\n\n"
+            f"👤 Name: {name}\n"
+            f"📱 Chat ID: {employee_chat_id}"
+        )
+        
+        # Try to notify the employee if possible
+        try:
+            await context.bot.send_message(
+                chat_id=employee_chat_id,
+                text=f"👋 Welcome to TrichyGold Task Manager! You have been added as an employee by the administrator."
+            )
+        except Exception as e:
+            logger.error(f"Failed to notify new employee: {e}")
+            await update.message.reply_text(
+                "⚠️ Employee added, but could not send welcome message. The chat ID might be incorrect or the user hasn't started the bot yet."
+            )
+    else:
+        await update.message.reply_text(f"❌ {message}")
+
+async def remove_employee_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /remove_employee command to remove an employee from the system"""
+    chat_id = str(update.message.chat_id)
+    
+    # Only admin can remove employees
+    if chat_id != YOUR_ID:
+        await update.message.reply_text("⛔ Sorry, only administrators can remove employees.")
+        return
+    
+    # Check if we have the required arguments
+    if not context.args or len(context.args) < 1:
+        await update.message.reply_text(
+            "⚠️ Please provide employee chat ID.\n\n"
+            "Format: /remove_employee <chat_id>\n"
+            "Example: /remove_employee 123456789"
+        )
+        return
+    
+    # Extract chat_id from arguments
+    employee_chat_id = context.args[0]
+    
+    # Validate chat ID
+    from validators import is_valid_chat_id
+    if not is_valid_chat_id(employee_chat_id):
+        await update.message.reply_text("⚠️ Invalid chat ID format.")
+        return
+    
+    # Remove employee from database
+    success, message, employee_data = db.remove_employee(employee_chat_id)
+    
+    if success:
+        # Confirm to admin
+        await update.message.reply_text(
+            f"✅ Employee removed successfully!\n\n"
+            f"👤 Name: {employee_data['name']}\n"
+            f"📱 Chat ID: {employee_chat_id}"
+        )
+        
+        # Try to notify the employee if possible
+        try:
+            await context.bot.send_message(
+                chat_id=employee_chat_id,
+                text="🔔 Your account has been removed from the TrichyGold Task Manager system by the administrator."
+            )
+        except Exception as e:
+            logger.error(f"Failed to notify removed employee: {e}")
+    else:
+        await update.message.reply_text(f"❌ {message}")
 
 
 @app.route('/webhook', methods=['POST'])
@@ -1842,6 +1915,8 @@ async def main() -> None:
         application.add_handler(CommandHandler("dbstatus", db_status_command))
         application.add_handler(CommandHandler("dbreconnect", db_reconnect_command))
         application.add_handler(CommandHandler("dbmigrate", db_migrate_command))
+        application.add_handler(CommandHandler("add_employee", add_employee_command))
+        application.add_handler(CommandHandler("remove_employee", remove_employee_command))
         
         # Media message handler for clarifications, inquiries, and broadcasts
         # Only handle non-command messages

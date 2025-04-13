@@ -1,4 +1,5 @@
 import os
+import re
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any, Tuple
 from pymongo import MongoClient
@@ -59,9 +60,14 @@ class MongoDB:
                 return False
                 
             # Log URI components (without credentials) for debugging
-            uri_parts = re.match(r'mongodb(?:\+srv)?://(?:.*@)?([^/]+)(?:/([^?]+))?', mongodb_uri)
-            if uri_parts:
-                logger.info(f"URI components have been properly URL-encoded")
+            try:
+                import re  # Import re again to ensure it's available in this scope
+                uri_parts = re.match(r'mongodb(?:\+srv)?://(?:.*@)?([^/]+)(?:/([^?]+))?', mongodb_uri)
+                if uri_parts:
+                    logger.info(f"URI components have been properly URL-encoded")
+            except Exception as e:
+                logger.error(f"Error parsing URI: {e}")
+                uri_parts = None
                 
             # Set connection timeout options
             client_options = {
@@ -368,23 +374,129 @@ class MongoDB:
     def get_employees(self):
         """Get all employees from MongoDB"""
         try:
-            # Ensure we have a valid connection
             if not self.is_connected():
-                logger.warning("MongoDB not connected. Attempting to reconnect...")
-                self.connect()
-            
+                logger.warning("Cannot get employees: MongoDB not connected")
+                return []
+                
             # Make sure we have the employees collection
             if not hasattr(self, 'employees') or self.employees is None:
                 self.employees = self.db.employees
                 
-            # Get all employees from MongoDB
-            employees = list(self.employees.find({}))
-            logger.info(f"Retrieved {len(employees)} employees from MongoDB")
-            
+            # Get all employees
+            employees = list(self.employees.find())
             return employees
         except Exception as e:
             logger.error(f"Error getting employees from MongoDB: {e}")
             return []
+    
+    def add_employee(self, name: str, chat_id: str) -> Tuple[bool, str, Dict]:
+        """
+        Add a new employee to the database
+        
+        Args:
+            name: Employee name
+            chat_id: Employee chat ID
+            
+        Returns:
+            Tuple[bool, str, Dict]: (success, message, employee_data)
+        """
+        try:
+            if not self.is_connected():
+                return False, "Database connection error", {}
+                
+            # Make sure we have the employees collection
+            if not hasattr(self, 'employees') or self.employees is None:
+                self.employees = self.db.employees
+                
+            # Check if employee already exists
+            existing_employee = self.employees.find_one({'chat_id': chat_id})
+            if existing_employee:
+                return False, f"Employee with chat ID {chat_id} already exists", existing_employee
+            
+            # Add employee to database
+            employee_data = {
+                'name': name,
+                'chat_id': chat_id,
+                'created_at': datetime.now()
+            }
+            
+            self.employees.update_one(
+                {'chat_id': chat_id},
+                {'$set': employee_data},
+                upsert=True
+            )
+            
+            logger.info(f"Added new employee: {name} with chat ID {chat_id}")
+            return True, "Employee added successfully", employee_data
+            
+        except Exception as e:
+            error_msg = f"Error adding employee: {e}"
+            logger.error(error_msg)
+            return False, error_msg, {}
+    
+    def remove_employee(self, chat_id: str) -> Tuple[bool, str, Dict]:
+        """
+        Remove an employee from the database
+        
+        Args:
+            chat_id: Employee chat ID
+            
+        Returns:
+            Tuple[bool, str, Dict]: (success, message, removed_employee_data)
+        """
+        try:
+            if not self.is_connected():
+                return False, "Database connection error", {}
+                
+            # Make sure we have the employees collection
+            if not hasattr(self, 'employees') or self.employees is None:
+                self.employees = self.db.employees
+                
+            # Check if employee exists
+            existing_employee = self.employees.find_one({'chat_id': chat_id})
+            if not existing_employee:
+                return False, f"No employee found with chat ID {chat_id}", {}
+            
+            # Remove employee from database
+            result = self.employees.delete_one({'chat_id': chat_id})
+            
+            if result.deleted_count > 0:
+                logger.info(f"Removed employee: {existing_employee['name']} with chat ID {chat_id}")
+                return True, "Employee removed successfully", existing_employee
+            else:
+                return False, f"Failed to remove employee with chat ID {chat_id}", {}
+                
+        except Exception as e:
+            error_msg = f"Error removing employee: {e}"
+            logger.error(error_msg)
+            return False, error_msg, {}
+    
+    def get_employee(self, chat_id: str) -> Optional[Dict]:
+        """
+        Get an employee by chat ID
+        
+        Args:
+            chat_id: Employee chat ID
+            
+        Returns:
+            Optional[Dict]: Employee data or None if not found
+        """
+        try:
+            if not self.is_connected():
+                logger.warning("Cannot get employee: MongoDB not connected")
+                return None
+                
+            # Make sure we have the employees collection
+            if not hasattr(self, 'employees') or self.employees is None:
+                self.employees = self.db.employees
+                
+            # Find employee by chat_id
+            employee = self.employees.find_one({'chat_id': str(chat_id)})
+            return employee
+            
+        except Exception as e:
+            logger.error(f"Error getting employee: {e}")
+            return None
     
     def get_employee_tasks(self, employee_id):
         """Get all tasks assigned to a specific employee from MongoDB"""
