@@ -71,29 +71,133 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
                 list_employees_command
             )
             
-            # Execute the appropriate command directly
+            # Execute the appropriate command directly with immediate responses
             if data == 'cmd_assign':
                 await query.message.reply_text(
+                    "📝 *Task Assignment*\n\n"
                     "Use /assign employee1,employee2 <task> [time]\n\n"
-                    "Example: /assign rehan,shameem Check inventory 30m"
+                    "Example: /assign rehan,shameem Check inventory 30m",
+                    parse_mode=ParseMode.MARKDOWN
                 )
             elif data == 'cmd_done' or data == 'cmd_tasks':
-                # For commands that show task lists, execute them directly
-                context.args = []
-                await tasks_command(update, context)
+                # Show active tasks directly
+                await query.message.reply_text("📋 *Active Tasks*\n\nFetching your tasks...", parse_mode=ParseMode.MARKDOWN)
+                
+                # For tasks, we'll implement a direct response instead of calling the command
+                try:
+                    if not db.is_connected():
+                        db.connect()
+                        if not db.is_connected():
+                            await query.message.reply_text("❌ Database connection failed. Please try again later.")
+                            return
+                            
+                    # Get tasks from database
+                    tasks = list(db.tasks.find({"completed": False}))
+                    
+                    if not tasks:
+                        await query.message.reply_text("📋 No active tasks found.")
+                        return
+                        
+                    # Format tasks
+                    message = "📋 *Active Tasks*\n\n"
+                    for task in tasks:
+                        task_id = task.get('task_id')
+                        task_text = task.get('task')
+                        assigned_to = task.get('assigned_to', [])
+                        assigned_names = [db.get_employee_name(emp_id) for emp_id in assigned_to]
+                        assigned_str = ", ".join(assigned_names) if assigned_names else "Unknown"
+                        
+                        message += f"*Task #{task_id}*\n"
+                        message += f"📌 {task_text}\n"
+                        message += f"👤 Assigned to: {assigned_str}\n\n"
+                    
+                    await query.message.reply_text(message, parse_mode=ParseMode.MARKDOWN)
+                except Exception as e:
+                    logger.error(f"Error fetching tasks: {e}")
+                    await query.message.reply_text(f"❌ Error fetching tasks: {str(e)}")
             elif data == 'cmd_help':
-                await help_command(update, context)
+                # Direct help message
+                help_text = (
+                    "🔑 *TrichyGold Bot Commands*\n\n"
+                    "/start - Start the bot\n"
+                    "/help - Show this help message\n"
+                    "/assign - Assign tasks to employees\n"
+                    "/tasks - View and manage tasks\n"
+                    "/clarify - Add details to tasks\n"
+                    "/broadcast - Send message to all employees\n"
+                    "/list_employees - List all registered employees\n"
+                )
+                await query.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN)
             elif data == 'cmd_clarify':
-                await clarify_command(update, context)
+                await query.message.reply_text(
+                    "💬 *Task Clarification*\n\n"
+                    "Use /clarify <task_id> <details>\n\n"
+                    "Example: /clarify 1 Please check the back storage area first",
+                    parse_mode=ParseMode.MARKDOWN
+                )
             elif data == 'cmd_broadcast':
-                await broadcast_command(update, context)
-            elif data == 'cmd_dbreconnect':
-                await db_reconnect_command(update, context)
+                await query.message.reply_text(
+                    "📢 *Broadcast Message*\n\n"
+                    "Use /broadcast <message>\n\n"
+                    "Example: /broadcast Meeting at 3pm today",
+                    parse_mode=ParseMode.MARKDOWN
+                )
             elif data == 'cmd_list_employees':
-                # Call the list_employees_command directly
                 await query.answer("Fetching employee list...")
-                # Call the list_employees_command directly
-                await list_employees_command(update, context)
+                
+                # Direct employee listing
+                try:
+                    if not db.is_connected():
+                        db.connect()
+                        if not db.is_connected():
+                            await query.message.reply_text("❌ Database connection failed. Please try again later.")
+                            return
+                            
+                    # Get employees from database
+                    employees = list(db.employees.find())
+                    
+                    if not employees:
+                        # No employees found, offer to add test employees
+                        keyboard = [
+                            [InlineKeyboardButton("➕ Add Test Employees", callback_data="add_test_employees")],
+                            [InlineKeyboardButton("➕ Add Employee Manually", callback_data="add_employee")]
+                        ]
+                        await query.message.reply_text(
+                            "📋 No employees found in the system.\n\nWould you like to add test employees?",
+                            reply_markup=InlineKeyboardMarkup(keyboard)
+                        )
+                        return
+                    
+                    # Format employee list
+                    message = "👥 *Registered Employees*\n\n"
+                    
+                    for i, employee in enumerate(employees, 1):
+                        name = employee.get('name', 'Unknown')
+                        employee_chat_id = employee.get('chat_id', 'Unknown')
+                        message += f"{i}. 👤 *{name}* (ID: `{employee_chat_id}`)\n"
+                    
+                    # Add buttons to manage employees
+                    keyboard = [
+                        [InlineKeyboardButton("➕ Add Employee", callback_data="add_employee")],
+                        [InlineKeyboardButton("🔄 Refresh List", callback_data="cmd_list_employees")]
+                    ]
+                    
+                    # Add remove buttons for each employee
+                    for employee in employees:
+                        name = employee.get('name', 'Unknown')
+                        employee_chat_id = employee.get('chat_id', 'Unknown')
+                        keyboard.append([
+                            InlineKeyboardButton(f"❌ Remove {name}", callback_data=f"remove_employee_{employee_chat_id}")
+                        ])
+                    
+                    await query.message.reply_text(
+                        message,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+                except Exception as e:
+                    logger.error(f"Error listing employees: {e}")
+                    await query.message.reply_text(f"❌ Error listing employees: {str(e)}")
             
         # Handle add employee button
         elif data == 'add_employee':
