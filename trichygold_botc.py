@@ -1153,55 +1153,55 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
             await update.message.reply_text("❌ An error occurred while processing your message.")
             context.user_data.clear()
 
-    async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle button callbacks"""
-        try:
-            query = update.callback_query
-            data = query.data
-            chat_id = str(update.callback_query.from_user.id)
+async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle button callbacks"""
+    try:
+        query = update.callback_query
+        data = query.data
+        chat_id = str(update.callback_query.from_user.id)
+        
+        # Handle task action buttons
+        if data.startswith('taskdone_'):
+            task_id = int(data.split('_')[1])
+            await query.answer()
             
-            # Handle task action buttons
-            if data.startswith('taskdone_'):
-                task_id = int(data.split('_')[1])
-                await query.answer()
-                
-                # Create a mock update with the task ID as an argument
-                context.args = [str(task_id)]
-                
-                # Special handling for admin
-                chat_id = str(query.from_user.id)
-                if chat_id == YOUR_ID:
-                    help_text = (
-                        "🔑 *Admin Commands*\n\n"
-                        "/assign \- Assign tasks to employees\n"
-                        "Format: /assign employee1,employee2 task \[time\]\n\n"
-                        "/tasks \- View and manage all active tasks\n"
-                        "Format: /tasks \[task\_id\]\n\n"
-                        "/clarify \- Add details to tasks\n"
-                        "Format: /clarify task\_id details\n\n"
-                        "/broadcast \- Send message to all employees\n"
-                        "Format: /broadcast message\n\n"
-                        "/list\_employees \- View all registered employees\n\n"
-                        "/task \- View tasks assigned to a specific employee\n"
-                        "Format: /task employee\_name\n\n"
-                        "/help \- Show this message\n\n"
-                        "*Legacy Commands* \(use /tasks instead\):\n"
-                        "/done \- Same as /tasks\n"
-                    )
-                else:
-                    help_text = (
-                        "👤 *Employee Commands*\n\n"
-                        "/tasks \- View your tasks and mark them as completed\n"
-                        "Format: /tasks \[task\_id\]\n\n"
-                        "/inquire \- Ask questions about tasks\n"
-                        "Format: /inquire task\_id question\n\n"
-                        "/notify \- Send notice to admin\n"
-                        "Format: /notify message\n\n"
-                        "/help \- Show this message\n\n"
-                        "*Legacy Commands* \(use /tasks instead\):\n"
-                        "/taskdone \- Same as /tasks\n"
-                        "/mytasks \- Same as /tasks\n"
-                    )
+            # Create a mock update with the task ID as an argument
+            context.args = [str(task_id)]
+            
+            # Special handling for admin
+            chat_id = str(query.from_user.id)
+            if chat_id == YOUR_ID:
+                help_text = (
+                    "🔑 *Admin Commands*\n\n"
+                    "/assign \- Assign tasks to employees\n"
+                    "Format: /assign employee1,employee2 task \[time\]\n\n"
+                    "/tasks \- View and manage all active tasks\n"
+                    "Format: /tasks \[task\_id\]\n\n"
+                    "/clarify \- Add details to tasks\n"
+                    "Format: /clarify task\_id details\n\n"
+                    "/broadcast \- Send message to all employees\n"
+                    "Format: /broadcast message\n\n"
+                    "/list\_employees \- View all registered employees\n\n"
+                    "/task \- View tasks assigned to a specific employee\n"
+                    "Format: /task employee\_name\n\n"
+                    "/help \- Show this message\n\n"
+                    "*Legacy Commands* \(use /tasks instead\):\n"
+                    "/done \- Same as /tasks\n"
+                )
+            else:
+                help_text = (
+                    "👤 *Employee Commands*\n\n"
+                    "/tasks \- View your tasks and mark them as completed\n"
+                    "Format: /tasks \[task\_id\]\n\n"
+                    "/inquire \- Ask questions about tasks\n"
+                    "Format: /inquire task\_id question\n\n"
+                    "/notify \- Send notice to admin\n"
+                    "Format: /notify message\n\n"
+                    "/help \- Show this message\n\n"
+                    "*Legacy Commands* \(use /tasks instead\):\n"
+                    "/taskdone \- Same as /tasks\n"
+                    "/mytasks \- Same as /tasks\n"
+                )
                 await query.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN)
             elif data == 'cmd_inquire':
                 await query.message.reply_text("Use /inquire <task_id> <your question>")
