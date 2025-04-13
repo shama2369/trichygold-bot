@@ -40,6 +40,8 @@ logger.info(f"Admin ID set to: {YOUR_ID}")
 from database import db
 # Import employee handlers
 from employee_handlers import add_employee_command, remove_employee_command, list_employees_command
+# Import test employees handlers
+from test_employees import add_test_employees_command, handle_add_test_employees_callback
 application = Application.builder().token(BOT_TOKEN).build()
 app = Quart(__name__)
 
@@ -1339,17 +1341,127 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
             try:
                 # Check if MongoDB is connected
                 if not db.is_connected():
+                    # Try to reconnect
+                    db.connect()
                     await query.message.reply_text(
-                        "⚠️ Database connection error. Please try again later or check with /dbstatus."
+                        "⚠️ Database connection was lost. Attempting to reconnect..."
+                    )
+                    if not db.is_connected():
+                        await query.message.reply_text(
+                            "❌ Failed to connect to database. Please check with /dbstatus."
+                        )
+                        return
+                
+                # Get all employees from database
+                try:
+                    employees = list(db.employees.find())
+                    logger.info(f"Found {len(employees)} employees in database")
+                except Exception as db_error:
+                    logger.error(f"Database query error: {db_error}")
+                    await query.message.reply_text(f"❌ Database query error: {str(db_error)}")
+                    return
+                
+                if not employees:
+                    # No employees found, offer to add test employees
+                    keyboard = [
+                        [InlineKeyboardButton("➕ Add Test Employees", callback_data="add_test_employees")],
+                        [InlineKeyboardButton("➕ Add Employee Manually", callback_data="add_employee")]
+                    ]
+                    await query.message.reply_text(
+                        "📋 No employees found in the system.\n\nWould you like to add test employees?",
+                        reply_markup=InlineKeyboardMarkup(keyboard)
                     )
                     return
                 
-                # Get all employees from database
-                employees = list(db.employees.find())
+                # Create a message with all employees
+                message = "📋 *Employee List*\n\n"
                 
-                if not employees:
-                    await query.message.reply_text("📋 No employees found in the system.")
-                    return
+                # Create keyboard with remove buttons
+                keyboard = []
+                
+                for i, employee in enumerate(employees, 1):
+                    name = employee.get('name', 'Unknown')
+                    employee_chat_id = employee.get('chat_id', 'Unknown')
+                    
+                    message += f"{i}. 👤 *{name}* (ID: `{employee_chat_id}`)\n"
+                    
+                    # Add remove button for each employee
+                    keyboard.append([
+                        InlineKeyboardButton(f"❌ Remove {name}", callback_data=f"remove_employee_{employee_chat_id}")
+                    ])
+                
+                # Add a button to add new employees
+                keyboard.append([InlineKeyboardButton("➕ Add Employee", callback_data="add_employee")])
+                keyboard.append([InlineKeyboardButton("🔄 Refresh List", callback_data="cmd_list_employees")])
+                
+                # Send the message with the inline keyboard
+                await query.message.reply_text(
+                    message,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                
+                logger.info(f"Listed {len(employees)} employees for admin")
+                
+            except Exception as e:
+                logger.error(f"Error listing employees: {e}")
+                await query.message.reply_text(
+                    f"❌ Error listing employees: {str(e)}\n\n"
+                    f"Please try again or check database connection with /dbstatus."
+                )
+        elif data == 'add_employee':
+            await query.answer()
+            await query.message.reply_text(
+                "To add a new employee, use the format:\n"
+                "/add_employee <name> <chat_id>\n\n"
+                "Example: /add_employee John 123456789"
+            )
+        elif data == 'add_test_employees':
+            await query.answer("Adding test employees...")
+            
+            try:
+                # Check if MongoDB is connected
+                if not db.is_connected():
+                    # Try to reconnect
+                    db.connect()
+                    await query.message.reply_text(
+                        "⚠️ Database connection was lost. Attempting to reconnect..."
+                    )
+                    if not db.is_connected():
+                        await query.message.reply_text(
+                            "❌ Failed to connect to database. Please check with /dbstatus."
+                        )
+                        return
+                
+                # Add test employees
+                test_employees = [
+                    {"name": "John", "chat_id": "123456789"},
+                    {"name": "Alice", "chat_id": "987654321"},
+                    {"name": "Bob", "chat_id": "555555555"}
+                ]
+                
+                success_count = 0
+                for employee in test_employees:
+                    try:
+                        # Check if employee already exists
+                        existing = db.employees.find_one({"chat_id": employee["chat_id"]})
+                        if existing:
+                            continue
+                            
+                        # Add employee to database
+                        db.employees.insert_one(employee)
+                        success_count += 1
+                        logger.info(f"Added test employee: {employee['name']} with chat ID {employee['chat_id']}")
+                    except Exception as e:
+                        logger.error(f"Error adding test employee {employee['name']}: {e}")
+                
+                if success_count > 0:
+                    await query.message.reply_text(f"✅ Added {success_count} test employees successfully!")
+                else:
+                    await query.message.reply_text("⚠️ No new test employees were added. They may already exist.")
+                
+                # Show updated employee list
+                employees = list(db.employees.find())
                 
                 # Create a message with all employees
                 message = "📋 *Employee List*\n\n"
@@ -1378,20 +1490,9 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
                     parse_mode=ParseMode.MARKDOWN
                 )
                 
-                logger.info(f"Listed {len(employees)} employees for admin")
-                
             except Exception as e:
-                logger.error(f"Error listing employees: {e}")
-                await query.message.reply_text(
-                    f"❌ Error listing employees: {str(e)}\n\n"
-                    f"Please try again or check database connection with /dbstatus."
-                )
-        elif data == 'add_employee':
-            await query.answer()
-            await query.message.reply_text(
-                "To add a new employee, use the format:\n"
-                "/add_employee <name> <chat_id>"
-            )
+                logger.error(f"Error adding test employees: {e}")
+                await query.message.reply_text(f"❌ Error adding test employees: {str(e)}")
         elif data.startswith('remove_employee_'):
             # Extract employee chat ID from callback data
             employee_chat_id = data.split('_')[2]
@@ -2051,16 +2152,16 @@ async def db_status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
     user_id = str(chat_id)
     
-    # Allow all users to check basic database status
-    # But show more details to admin
-    is_admin = user_id == YOUR_ID
-    
-    # Log the command for debugging
-    logger.info(f"DB status command received from user {user_id} (admin: {is_admin})")
-    
-    # Check MongoDB connection status
+    # Get connection status
     is_connected = db.is_connected()
-    connection_details = db.get_connection_details()
+    connection_details = db.get_connection_status()
+    
+    # Try to reconnect if not connected
+    if not is_connected:
+        await update.message.reply_text("⚠️ Database not connected. Attempting to reconnect...")
+        db.connect()
+        is_connected = db.is_connected()
+        connection_details = db.get_connection_status()
     
     if is_connected:
         # Get more detailed information
@@ -2070,6 +2171,13 @@ async def db_status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             active_connections = connections_info.get("current", "unknown")
             available_connections = connections_info.get("available", "unknown")
             
+            # Check if employees collection exists and count documents
+            try:
+                employee_count = db.employees.count_documents({})
+                collection_status = f"✅ Employees collection: {employee_count} employees found"
+            except Exception as coll_err:
+                collection_status = f"❌ Employees collection error: {str(coll_err)}"
+            
             message = (
                 f"✅ MongoDB Connection Status: CONNECTED\n\n"
                 f"Server: {server_info.get('host', 'unknown')}\n"
@@ -2078,11 +2186,22 @@ async def db_status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"Active Connections: {active_connections}\n"
                 f"Available Connections: {available_connections}\n"
                 f"Last Connection Attempt: {connection_details.get('last_attempt', 'unknown')}\n\n"
+                f"{collection_status}\n\n"
                 f"Storage Mode: MongoDB\n\n"
                 f"Commands:\n"
                 f"/dbreconnect - Force reconnection attempt\n"
-                f"/dbmigrate - Migrate in-memory data to MongoDB"
+                f"/dbmigrate - Migrate in-memory data to MongoDB\n"
+                f"/add_test_employees - Add test employees to database"
             )
+            
+            # Create keyboard with database actions
+            keyboard = [
+                [InlineKeyboardButton("🔄 Reconnect", callback_data="cmd_dbreconnect")],
+                [InlineKeyboardButton("➕ Add Test Employees", callback_data="add_test_employees")],
+                [InlineKeyboardButton("📋 List Employees", callback_data="cmd_list_employees")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
         except Exception as e:
             message = (
                 f"✅ MongoDB Connection Status: CONNECTED\n\n"
@@ -2092,6 +2211,7 @@ async def db_status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"/dbreconnect - Force reconnection attempt\n"
                 f"/dbmigrate - Migrate in-memory data to MongoDB"
             )
+            reply_markup = None
     else:
         # Get error information
         error_msg = connection_details.get("error", "Unknown error")
@@ -2109,11 +2229,24 @@ async def db_status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Commands:\n"
             f"/dbreconnect - Force reconnection attempt"
         )
+        
+        # Create keyboard with reconnect action
+        keyboard = [
+            [InlineKeyboardButton("🔄 Reconnect", callback_data="cmd_dbreconnect")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
     
-    await context.bot.send_message(
-        chat_id=chat_id,
-        text=message
+    await update.message.reply_text(
+        text=message,
+        reply_markup=reply_markup
     )
+    
+    # Add a direct command to add test employees
+    if is_connected:
+        await update.message.reply_text(
+            "You can add test employees directly with:\n"
+            "/add_test_employees"
+        )
 
 async def db_reconnect_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /dbreconnect command to force a reconnection attempt to MongoDB"""
@@ -2172,42 +2305,13 @@ async def db_migrate_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     # Check if MongoDB is connected
     if not db.is_connected():
         await update.message.reply_text(
-            "⚠️ Cannot migrate data: MongoDB not connected.\n\n"
-            "Use /dbreconnect to attempt reconnection."
+            "⚠️ Database connection error. Please check with /dbstatus and try again."
         )
         return
     
-    # Attempt to migrate data
-    success, migrated_count = await db.migrate_memory_to_db()
-    
-    if success:
-        await update.message.reply_text(
-            f"✅ Successfully migrated {migrated_count} items to MongoDB.\n\n"
-            f"Now using database storage exclusively."
-        )
-    else:
-        await update.message.reply_text(
-            f"❌ Failed to migrate data to MongoDB.\n\nStill using in-memory storage.\n\nUse /dbstatus to see connection details."
-        )
-
-async def add_employee_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /add_employee command to add a new employee to the system"""
-    chat_id = str(update.message.chat_id)
-    
-    # Only admin can add employees
-    if chat_id != YOUR_ID:
-        await update.message.reply_text("⛔ Sorry, only administrators can add employees.")
-        return
-    
-    # Check if we have the required arguments
-    if not context.args or len(context.args) < 2:
-        await update.message.reply_text(
-            "⚠️ Please provide employee name and chat ID.\n\n"
-            "Format: /add_employee <name> <chat_id>\n"
-            "Example: /add_employee john 123456789"
-        )
-        return
-    
+    # Migrate data
+    try:
+        # TODO: Implement data migration logic
     # Extract name and chat_id from arguments
     name = context.args[0]
     employee_chat_id = context.args[1]
@@ -2345,6 +2449,7 @@ async def main() -> None:
         application.add_handler(CommandHandler("dbmigrate", db_migrate_command))
         application.add_handler(CommandHandler("add_employee", add_employee_command))
         application.add_handler(CommandHandler("remove_employee", remove_employee_command))
+        application.add_handler(CommandHandler("add_test_employees", add_test_employees_command))
         
         # Media message handler for clarifications, inquiries, and broadcasts
         # Only handle non-command messages
