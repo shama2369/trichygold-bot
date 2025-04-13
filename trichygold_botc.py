@@ -733,10 +733,19 @@ async def list_employees_command(update: Update, context: ContextTypes.DEFAULT_T
         message = "📋 Registered Employees:\n\n" + "\n\n".join(employee_list)
         message += "\n\nTo add an employee:\n/add_employee <name> <telegram_id>"
         
-        # Add button to add new employee
-        keyboard = [
-            [InlineKeyboardButton("➕ Add New Employee", callback_data="add_employee")]
-        ]
+        # Create keyboard with buttons for each employee and add/remove options
+        keyboard = []
+        
+        # Add a remove button for each employee
+        for employee in employees:
+            name = employee.get('name')
+            emp_id = employee.get('chat_id')
+            if name and emp_id:
+                keyboard.append([InlineKeyboardButton(f"❌ Remove {name}", callback_data=f"remove_emp_{emp_id}")])
+        
+        # Add a button to add new employee
+        keyboard.append([InlineKeyboardButton("➕ Add New Employee", callback_data="add_employee")])
+        
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         await update.message.reply_text(message, reply_markup=reply_markup)
@@ -1093,50 +1102,81 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
                 # Set empty args for the context
                 context.args = []
                 
-                # Instead of creating a mock update which causes errors,
-                # call send_active_tasks directly with the chat_id
-                await query.message.reply_text("📋 Fetching your tasks...")
-                await send_active_tasks(chat_id, context)
-            elif data == 'cmd_clarify':
-                await query.message.reply_text("Use /clarify <task_id> <additional details>")
-            elif data == 'cmd_broadcast':
-                await query.message.reply_text("Use /broadcast <message>")
-            elif data == 'cmd_list_employees':
-                # Just use the query message to reply with employee list
-                try:
-                    employees = db.get_employees()
-                    if not employees:
-                        await query.message.reply_text("📋 No employees registered.\n\nTo add an employee, use:\n/add_employee <name> <telegram_id>")
-                        return
                     
-                    # Build employee list with task counts
-                    employee_list = []
-                    for emp in employees:
-                        name = emp['name']
-                        emp_id = emp['chat_id']
-                        
-                        # Get tasks for this employee
-                        tasks = db.get_employee_tasks(emp_id)
-                        active_tasks = sum(1 for task in tasks if task.get('status') == 'active')
-                        total_tasks = len(tasks)
-                        
-                        employee_list.append(f"👤 {name}\n   📱 ID: {emp_id}\n   📋 Tasks: {active_tasks} active, {total_tasks} total")
+                    await update.message.reply_text("✅ Inquiry sent to admin.")
                     
-                    message = "📋 Registered Employees:\n\n" + "\n\n".join(employee_list)
-                    message += "\n\nTo add an employee:\n/add_employee <name> <telegram_id>"
-                    
-                    # Add button to add new employee
-                    keyboard = [
-                        [InlineKeyboardButton("➕ Add New Employee", callback_data="add_employee")]
-                    ]
-                    reply_markup = InlineKeyboardMarkup(keyboard)
-                    
-                    await query.message.reply_text(message, reply_markup=reply_markup)
                 except Exception as e:
-                    logger.error(f"Error in cmd_list_employees: {e}")
-                    await query.message.reply_text("❌ An error occurred while listing employees.")
-            elif data == 'cmd_help':
-                # Just send the help message directly
+                    logger.error(f"Error sending inquiry: {e}")
+                    await update.message.reply_text("❌ Failed to send inquiry.")
+                    
+                context.user_data.clear()
+
+            elif user_state == 'awaiting_broadcast':
+                # Handle broadcast from admin
+                if chat_id != YOUR_ID:
+                    await update.message.reply_text("❌ Only admin can broadcast messages.")
+                    return
+                
+                success_count = 0
+                fail_count = 0
+                
+                for employee_id in EMPLOYEES.keys():
+                    try:
+                        if update.message.text:
+                            await context.bot.send_message(
+                                chat_id=employee_id,
+                                text=f"📢 Broadcast:\n{update.message.text}"
+                            )
+                        elif update.message.voice:
+                            await context.bot.send_voice(
+                                chat_id=employee_id,
+                                voice=update.message.voice.file_id,
+                                caption="🎤 Voice broadcast"
+                            )
+                        elif update.message.document:
+                            await context.bot.send_document(
+                                chat_id=employee_id,
+                                document=update.message.document.file_id,
+                                caption="📎 Document broadcast"
+                            )
+                        elif update.message.photo:
+                            await context.bot.send_photo(
+                                chat_id=employee_id,
+                                photo=update.message.photo[-1].file_id,
+                                caption="🖼 Photo broadcast"
+                            )
+                        success_count += 1
+                    except Exception as e:
+                        logger.error(f"Error broadcasting to {employee_id}: {e}")
+                        fail_count += 1
+                
+                status = f"✅ Broadcast sent to {success_count} employees"
+                if fail_count > 0:
+                    status += f"\n❌ Failed to send to {fail_count} employees"
+                await update.message.reply_text(status)
+                context.user_data.clear()
+
+        except Exception as e:
+            logger.error(f"Error in handle_media_message: {e}")
+            await update.message.reply_text("❌ An error occurred while processing your message.")
+            context.user_data.clear()
+
+    async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle button callbacks"""
+        try:
+            query = update.callback_query
+            data = query.data
+            chat_id = str(update.callback_query.from_user.id)
+            
+            # Handle task action buttons
+            if data.startswith('taskdone_'):
+                task_id = int(data.split('_')[1])
+                await query.answer()
+                
+                # Create a mock update with the task ID as an argument
+                context.args = [str(task_id)]
+                
+                # Special handling for admin
                 chat_id = str(query.from_user.id)
                 if chat_id == YOUR_ID:
                     help_text = (
@@ -1561,8 +1601,124 @@ async def send_task_reminder(context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Error in send_task_reminder for task #{task_id}: {e}")
 
+async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle button callbacks"""
+    try:
+        query = update.callback_query
+        data = query.data
+        chat_id = str(update.callback_query.from_user.id)
+        
+        # Log the button press
+        logger.info(f"Button callback: {data} from user {chat_id}")
+        
+        # Handle employee removal buttons
+        if data.startswith('remove_emp_'):
+            # Only admin can remove employees
+            if chat_id != YOUR_ID:
+                await query.answer("⛔ Only admin can remove employees")
+                return
+                
+            # Extract employee chat ID from callback data
+            employee_chat_id = data.split('_')[2]
+            
+            # Confirm removal with the admin
+            keyboard = [
+                [InlineKeyboardButton("✅ Yes, remove", callback_data=f"confirm_remove_{employee_chat_id}")],
+                [InlineKeyboardButton("❌ Cancel", callback_data="cancel_remove")]
+            ]
+            
+            # Get employee name for confirmation message
+            employee = db.get_employee(employee_chat_id)
+            if employee and 'name' in employee:
+                employee_name = employee['name']
+                await query.message.reply_text(
+                    f"⚠️ Are you sure you want to remove employee {employee_name} (ID: {employee_chat_id})?\n\n"
+                    f"This action cannot be undone.",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            else:
+                await query.answer("❌ Employee not found")
+            
+        # Handle employee removal confirmation
+        elif data.startswith('confirm_remove_'):
+            # Only admin can remove employees
+            if chat_id != YOUR_ID:
+                await query.answer("⛔ Only admin can remove employees")
+                return
+                
+            # Extract employee chat ID from callback data
+            employee_chat_id = data.split('_')[2]
+            
+            # Remove employee from database
+            success, message, employee_data = db.remove_employee(employee_chat_id)
+            
+            if success:
+                # Confirm to admin
+                await query.message.reply_text(
+                    f"✅ Employee removed successfully!\n\n"
+                    f"👤 Name: {employee_data['name']}\n"
+                    f"📱 Chat ID: {employee_chat_id}"
+                )
+                
+                # Try to notify the employee if possible
+                try:
+                    await context.bot.send_message(
+                        chat_id=employee_chat_id,
+                        text="🔔 Your account has been removed from the TrichyGold Task Manager system by the administrator."
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to notify removed employee: {e}")
+                    
+                # Refresh the employee list
+                await list_employees_command(update, context)
+            else:
+                await query.message.reply_text(f"❌ {message}")
+                
+        # Handle cancellation of employee removal
+        elif data == 'cancel_remove':
+            await query.message.reply_text("🔄 Employee removal cancelled.")
+            
+        # Handle add employee button
+        elif data == 'add_employee':
+            await query.message.reply_text(
+                "To add a new employee, use the command:\n"
+                "/add_employee <name> <telegram_id>\n\n"
+                "Example: /add_employee john 123456789"
+            )
+            
+        # Handle other button callbacks
+        elif data.startswith('taskdone_'):
+            task_id = int(data.split('_')[1])
+            await query.answer()
+            
+            # Create a mock update with the task ID as an argument
+            context.args = [str(task_id)]
+            
+            # Call the taskdone command
+            await taskdone_command(update, context)
+            
+        elif data.startswith('inquire_'):
+            task_id = int(data.split('_')[1])
+            await query.answer()
+            
+            # Set up context for inquiry
+            context.user_data['inquiring_task'] = task_id
+            
+            await query.message.reply_text(
+                f"📝 Send your question about Task #{task_id}\n"
+                f"You can send:\n"
+                f"• Text message\n"
+                f"• Voice message\n"
+                f"• Files/documents\n"
+                f"• Photos"
+            )
+            
+    except Exception as e:
+        logger.error(f"Error in handle_button_callback: {e}")
+        await query.answer("❌ An error occurred")
+
 async def log_all_updates(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Log all incoming updates for debugging purposes"""
+    """Log all incoming updates for debugging"""
     try:
         logger.info(f"Received update with ID: {update.update_id}")
         
