@@ -67,7 +67,8 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
             # Import commands here to avoid circular imports
             from trichygold_botc import (
                 tasks_command, help_command, clarify_command, 
-                broadcast_command, db_status_command, db_reconnect_command
+                broadcast_command, db_status_command, db_reconnect_command,
+                list_employees_command
             )
             
             # Execute the appropriate command directly
@@ -89,81 +90,11 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
             elif data == 'cmd_dbreconnect':
                 await db_reconnect_command(update, context)
             elif data == 'cmd_list_employees':
-                # Handle listing employees
+                # Call the list_employees_command directly
                 await query.answer("Fetching employee list...")
-                
-                try:
-                    # Check if MongoDB is connected
-                    if not db.is_connected():
-                        # Try to reconnect
-                        db.connect()
-                        await query.message.reply_text(
-                            "⚠️ Database connection was lost. Attempting to reconnect..."
-                        )
-                        if not db.is_connected():
-                            await query.message.reply_text(
-                                "❌ Failed to connect to database. Please check with /dbstatus."
-                            )
-                            return
-                    
-                    # Get all employees from database
-                    try:
-                        employees = list(db.employees.find())
-                        logger.info(f"Found {len(employees)} employees in database")
-                    except Exception as db_error:
-                        logger.error(f"Database query error: {db_error}")
-                        await query.message.reply_text(f"❌ Database query error: {str(db_error)}")
-                        return
-                    
-                    if not employees:
-                        # No employees found, offer to add test employees
-                        keyboard = [
-                            [InlineKeyboardButton("➕ Add Test Employees", callback_data="add_test_employees")],
-                            [InlineKeyboardButton("➕ Add Employee Manually", callback_data="add_employee")]
-                        ]
-                        await query.message.reply_text(
-                            "📋 No employees found in the system.\n\nWould you like to add test employees?",
-                            reply_markup=InlineKeyboardMarkup(keyboard)
-                        )
-                        return
-                    
-                    # Create a message with all employees
-                    message = "📋 *Employee List*\n\n"
-                    
-                    # Create keyboard with remove buttons
-                    keyboard = []
-                    
-                    for i, employee in enumerate(employees, 1):
-                        name = employee.get('name', 'Unknown')
-                        employee_chat_id = employee.get('chat_id', 'Unknown')
-                        
-                        message += f"{i}. 👤 *{name}* (ID: `{employee_chat_id}`)\n"
-                        
-                        # Add remove button for each employee
-                        keyboard.append([
-                            InlineKeyboardButton(f"❌ Remove {name}", callback_data=f"remove_employee_{employee_chat_id}")
-                        ])
-                    
-                    # Add a button to add new employees
-                    keyboard.append([InlineKeyboardButton("➕ Add Employee", callback_data="add_employee")])
-                    keyboard.append([InlineKeyboardButton("🔄 Refresh List", callback_data="cmd_list_employees")])
-                    
-                    # Send the message with the inline keyboard
-                    await query.message.reply_text(
-                        message,
-                        reply_markup=InlineKeyboardMarkup(keyboard),
-                        parse_mode=ParseMode.MARKDOWN
-                    )
-                    
-                    logger.info(f"Listed {len(employees)} employees for admin")
-                    
-                except Exception as e:
-                    logger.error(f"Error listing employees: {e}")
-                    await query.message.reply_text(
-                        f"❌ Error listing employees: {str(e)}\n\n"
-                        f"Please try again or check database connection with /dbstatus."
-                    )
-                    
+                # Call the list_employees_command directly
+                await list_employees_command(update, context)
+            
         # Handle add employee button
         elif data == 'add_employee':
             await query.answer()
