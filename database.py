@@ -90,7 +90,17 @@ class MongoDB:
             
             # Test connection with ping
             logger.info("Attempting to ping MongoDB server...")
-            self.db = self.client.get_database()
+            
+            # Check if database name is in URI, if not use a default name
+            db_name = None
+            if uri_parts and uri_parts.group(2):
+                db_name = uri_parts.group(2)
+            else:
+                # Use a default database name if none specified in URI
+                db_name = 'trichygold'
+                logger.info(f"No database specified in URI, using default: {db_name}")
+                
+            self.db = self.client[db_name]
             self.db.command('ping')
             
             # Get server info

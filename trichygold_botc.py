@@ -39,7 +39,6 @@ logger.info(f"Admin ID set to: {YOUR_ID}")
 
 # Initialize database and bot
 from database import db
-from employee_handlers import add_employee_command, remove_employee_command
 application = Application.builder().token(BOT_TOKEN).build()
 app = Quart(__name__)
 
