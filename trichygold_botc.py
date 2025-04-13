@@ -12,10 +12,6 @@ import os
 import aiohttp
 import re
 import copy
-from dotenv import load_dotenv
-
-# Load environment variables from .env file
-load_dotenv()
 
 # Set up logging
 logging.basicConfig(
@@ -24,12 +20,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Get environment variables
-# Reload environment variables to ensure they're fresh
-load_dotenv(override=True)
+# Get environment variables directly from Render deployment
+# No dotenv dependency needed
 
 # Get and log the bot token (without showing the full token for security)
-BOT_TOKEN = os.getenv('BOT_TOKEN', 'YOUR_BOT_TOKEN')
+BOT_TOKEN = os.getenv('BOT_TOKEN', '')
+if not BOT_TOKEN:
+    logger.error("BOT_TOKEN environment variable not set!")
+    
 token_preview = BOT_TOKEN[:10] + '...' if BOT_TOKEN and len(BOT_TOKEN) > 10 else 'Not set'
 logger.info(f"Using bot token: {token_preview}")
 
