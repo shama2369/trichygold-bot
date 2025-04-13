@@ -2441,6 +2441,11 @@ async def main() -> None:
         application.add_handler(CommandHandler("dbmigrate", db_migrate_command))
         application.add_handler(CommandHandler("add_employee", add_employee_command))
         application.add_handler(CommandHandler("remove_employee", remove_employee_command))
+        application.add_handler(CommandHandler("add_test_employees", add_test_employees_command))
+        
+        # IMPORTANT: Register the callback query handler for button clicks
+        application.add_handler(CallbackQueryHandler(handle_button_callback))
+        logger.info("Registered callback query handler for button clicks")
         
         # Media message handler for clarifications, inquiries, and broadcasts
         # Only handle non-command messages
