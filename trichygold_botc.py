@@ -1100,14 +1100,8 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
                 # Set empty args for the context
                 context.args = []
                 
-                    
-                    await update.message.reply_text("✅ Inquiry sent to admin.")
-                    
-                except Exception as e:
-                    logger.error(f"Error sending inquiry: {e}")
-                    await update.message.reply_text("❌ Failed to send inquiry.")
-                    
-                context.user_data.clear()
+                # Call the tasks_command directly
+                await tasks_command(update, context)
 
             elif user_state == 'awaiting_broadcast':
                 # Handle broadcast from admin
