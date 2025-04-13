@@ -2033,17 +2033,35 @@ async def remove_employee_command(update: Update, context: ContextTypes.DEFAULT_
 
 @app.route('/webhook', methods=['POST'])
 async def webhook():
-    data = await request.get_json()
-    update = Update.de_json(data, application.bot)
-    if update:
-        await application.process_update(update)
-    return "OK", 200
+    try:
+        data = await request.get_json()
+        logger.info(f"Webhook received data: {data}")
+        
+        # Create an Update object from the JSON data
+        update = Update.de_json(data, application.bot)
+        
+        if update:
+            logger.info(f"Processing update ID: {update.update_id}")
+            # Process the update through the application
+            await application.process_update(update)
+        else:
+            logger.warning("Received invalid update data")
+            
+        return "OK", 200
+    except Exception as e:
+        logger.error(f"Error in webhook handler: {e}")
+        return "Error", 500
 
 async def main() -> None:
     """Start the bot."""
     try:
         # Use the global application instance instead of creating a new one
         global application
+        
+        # First, initialize the application
+        await application.initialize()
+        
+        logger.info("Initializing application and registering command handlers...")
 
         # Command handlers
         application.add_handler(CommandHandler("help", help_command))
@@ -2077,6 +2095,39 @@ async def main() -> None:
 
         # Add error handler
         application.add_error_handler(error_handler)
+        
+        logger.info("All handlers registered successfully")
+
+        # Add detailed logging for all updates
+        async def log_all_updates(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+            """Log all updates for debugging purposes"""
+            try:
+                logger.info(f"Received update with ID: {update.update_id}")
+                
+                if update.message:
+                    user = update.message.from_user
+                    user_id = user.id if user else "Unknown"
+                    username = user.username if user else "None"
+                    logger.info(f"MESSAGE: {update.message.text} from user {user_id} ({username})")
+                    
+                    # Log commands specifically
+                    if update.message.text and update.message.text.startswith('/'):
+                        command_parts = update.message.text.split()
+                        command = command_parts[0]
+                        args = command_parts[1:] if len(command_parts) > 1 else []
+                        logger.info(f"COMMAND DETECTED: {command}")
+                        logger.info(f"Command: {command}, Args: {args}")
+                        
+                elif update.callback_query:
+                    user = update.callback_query.from_user
+                    user_id = user.id if user else "Unknown"
+                    logger.info(f"Button callback: {update.callback_query.data} from user {user_id}")
+                    
+                # Don't block the update from being processed by other handlers
+            except Exception as e:
+                logger.error(f"Error in logging update: {e}")
+
+        application.add_handler(MessageHandler(filters.ALL, log_all_updates), group=999)
 
         # Configure webhook
         service_url = os.getenv('SERVICE_URL', os.getenv('RENDER_SERVICE_URL'))
@@ -2114,11 +2165,9 @@ async def main() -> None:
             webhook_url = f"{service_url}/webhook"
             logger.info(f"Running on Render. Setting webhook to: {webhook_url}")
             
-            # Set up detailed logging for updates
-            application.add_handler(MessageHandler(filters.ALL, log_all_updates), group=999)
+            # Log_all_updates is already registered above, no need to register it again
             
-            # Initialize the application
-            await application.initialize()
+            # Application is already initialized above
             
             # Set the webhook
             await application.bot.set_webhook(webhook_url)
@@ -2134,11 +2183,9 @@ async def main() -> None:
             # Start the web server in a separate task
             web_server_task = asyncio.create_task(server.serve())
             
-            # Set up detailed logging for updates
-            application.add_handler(MessageHandler(filters.ALL, log_all_updates), group=999)
+            # Log_all_updates is already registered above, no need to register it again
             
-            # Initialize the application
-            await application.initialize()
+            # Application is already initialized above
             
             # Use the Application's run_polling method directly
             logger.info("Starting polling with drop_pending_updates=True")
