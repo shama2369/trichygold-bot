@@ -2252,10 +2252,17 @@ async def webhook():
                     data = query.data
                     chat_id = str(query.from_user.id)
                     
+                    logger.info(f"Button callback: {data} from user {chat_id}")
+                    
                     # Handle button callbacks directly here
-                    await query.answer(f"Processing: {data}")
+                    try:
+                        await query.answer(f"Processing: {data}")
+                        logger.info(f"Sent answer notification for {data}")
+                    except Exception as answer_error:
+                        logger.error(f"Error sending answer notification: {answer_error}")
                     
                     if data == 'cmd_help':
+                        logger.info(f"Processing help button for user {chat_id}")
                         help_text = (
                             "🔑 *TrichyGold Bot Commands*\n\n"
                             "/start - Start the bot\n"
@@ -2266,55 +2273,84 @@ async def webhook():
                             "/broadcast - Send message to all employees\n"
                             "/list_employees - List all registered employees\n"
                         )
-                        await query.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN)
+                        try:
+                            await query.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN)
+                            logger.info(f"Sent help message to user {chat_id}")
+                        except Exception as reply_error:
+                            logger.error(f"Error sending help message: {reply_error}")
                     elif data == 'cmd_list_employees':
+                        logger.info(f"Processing employee list button for user {chat_id}")
                         # Direct employee listing
                         employee_text = "👥 *Employee List*\n\n1. 👤 *Rehan* (ID: `123456789`)\n2. 👤 *Shameem* (ID: `987654321`)\n"
-                        await query.message.reply_text(employee_text, parse_mode=ParseMode.MARKDOWN)
+                        try:
+                            await query.message.reply_text(employee_text, parse_mode=ParseMode.MARKDOWN)
+                            logger.info(f"Sent employee list to user {chat_id}")
+                        except Exception as reply_error:
+                            logger.error(f"Error sending employee list: {reply_error}")
                     elif data == 'cmd_assign':
-                        await query.message.reply_text(
-                            "📝 *Task Assignment*\n\n"
-                            "Use /assign employee1,employee2 <task> [time]\n\n"
-                            "Example: /assign rehan,shameem Check inventory 30m",
-                            parse_mode=ParseMode.MARKDOWN
-                        )
+                        logger.info(f"Processing assign button for user {chat_id}")
+                        try:
+                            await query.message.reply_text(
+                                "📝 *Task Assignment*\n\n"
+                                "Use /assign employee1,employee2 <task> [time]\n\n"
+                                "Example: /assign rehan,shameem Check inventory 30m",
+                                parse_mode=ParseMode.MARKDOWN
+                            )
+                            logger.info(f"Sent assign help to user {chat_id}")
+                        except Exception as reply_error:
+                            logger.error(f"Error sending assign help: {reply_error}")
                     elif data == 'cmd_tasks' or data == 'cmd_done':
-                        # Show sample tasks
-                        message = "📋 *Active Tasks*\n\n"
-                        message += "*Task #1*\n"
-                        message += "📌 Check inventory\n"
-                        message += "👤 Assigned to: Rehan, Shameem\n\n"
-                        
-                        message += "*Task #2*\n"
-                        message += "📌 Clean storage area\n"
-                        message += "👤 Assigned to: Rehan\n\n"
-                        
-                        # Add task action buttons
-                        keyboard = [
-                            [InlineKeyboardButton("✅ Mark Task #1 Complete", callback_data="taskdone_1")],
-                            [InlineKeyboardButton("✅ Mark Task #2 Complete", callback_data="taskdone_2")],
-                            [InlineKeyboardButton("🔄 Refresh Tasks", callback_data="cmd_tasks")]
-                        ]
-                        
-                        await query.message.reply_text(
-                            message, 
-                            parse_mode=ParseMode.MARKDOWN,
-                            reply_markup=InlineKeyboardMarkup(keyboard)
-                        )
+                        logger.info(f"Processing tasks button for user {chat_id}")
+                        try:
+                            # Show sample tasks
+                            message = "📋 *Active Tasks*\n\n"
+                            message += "*Task #1*\n"
+                            message += "📌 Check inventory\n"
+                            message += "👤 Assigned to: Rehan, Shameem\n\n"
+                            
+                            message += "*Task #2*\n"
+                            message += "📌 Clean storage area\n"
+                            message += "👤 Assigned to: Rehan\n\n"
+                            
+                            # Add task action buttons
+                            keyboard = [
+                                [InlineKeyboardButton("✅ Mark Task #1 Complete", callback_data="taskdone_1")],
+                                [InlineKeyboardButton("✅ Mark Task #2 Complete", callback_data="taskdone_2")],
+                                [InlineKeyboardButton("🔄 Refresh Tasks", callback_data="cmd_tasks")]
+                            ]
+                            
+                            await query.message.reply_text(
+                                message, 
+                                parse_mode=ParseMode.MARKDOWN,
+                                reply_markup=InlineKeyboardMarkup(keyboard)
+                            )
+                            logger.info(f"Sent tasks list to user {chat_id}")
+                        except Exception as reply_error:
+                            logger.error(f"Error sending tasks list: {reply_error}")
                     elif data == 'cmd_clarify':
-                        await query.message.reply_text(
-                            "💬 *Task Clarification*\n\n"
-                            "Use /clarify <task_id> <details>\n\n"
-                            "Example: /clarify 1 Please check the back storage area first",
-                            parse_mode=ParseMode.MARKDOWN
-                        )
+                        logger.info(f"Processing clarify button for user {chat_id}")
+                        try:
+                            await query.message.reply_text(
+                                "💬 *Task Clarification*\n\n"
+                                "Use /clarify <task_id> <details>\n\n"
+                                "Example: /clarify 1 Please check the back storage area first",
+                                parse_mode=ParseMode.MARKDOWN
+                            )
+                            logger.info(f"Sent clarify help to user {chat_id}")
+                        except Exception as reply_error:
+                            logger.error(f"Error sending clarify help: {reply_error}")
                     elif data == 'cmd_broadcast':
-                        await query.message.reply_text(
-                            "📢 *Broadcast Message*\n\n"
-                            "Use /broadcast <message>\n\n"
-                            "Example: /broadcast Meeting at 3pm today",
-                            parse_mode=ParseMode.MARKDOWN
-                        )
+                        logger.info(f"Processing broadcast button for user {chat_id}")
+                        try:
+                            await query.message.reply_text(
+                                "📢 *Broadcast Message*\n\n"
+                                "Use /broadcast <message>\n\n"
+                                "Example: /broadcast Meeting at 3pm today",
+                                parse_mode=ParseMode.MARKDOWN
+                            )
+                            logger.info(f"Sent broadcast help to user {chat_id}")
+                        except Exception as reply_error:
+                            logger.error(f"Error sending broadcast help: {reply_error}")
                     logger.info(f"Successfully processed button callback: {data}")
                 except Exception as button_error:
                     logger.error(f"Error processing button callback: {button_error}")
