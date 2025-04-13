@@ -1202,20 +1202,20 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
                     "/mytasks \- Same as /tasks\n"
                 )
                 await query.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN)
-            elif data == 'cmd_inquire':
-                await query.message.reply_text("Use /inquire <task_id> <your question>")
-            elif data == 'cmd_taskdone':
-                # Instead of creating a mock update which causes errors,
-                # call send_active_tasks directly with the chat_id
-                await query.message.reply_text("📋 Fetching your tasks...")
-                await send_active_tasks(chat_id, context)
-            elif data == 'cmd_notify':
-                await query.message.reply_text("Use /notify <message>")
-            elif data == 'cmd_mytasks':
-                # Instead of creating a mock update which causes errors,
-                # call send_active_tasks directly with the chat_id
-                await query.message.reply_text("📋 Fetching your tasks...")
-                await send_active_tasks(chat_id, context)
+        elif data == 'cmd_inquire':
+            await query.message.reply_text("Use /inquire <task_id> <your question>")
+        elif data == 'cmd_taskdone':
+            # Instead of creating a mock update which causes errors,
+            # call send_active_tasks directly with the chat_id
+            await query.message.reply_text("📋 Fetching your tasks...")
+            await send_active_tasks(chat_id, context)
+        elif data == 'cmd_notify':
+            await query.message.reply_text("Use /notify <message>")
+        elif data == 'cmd_mytasks':
+            # Instead of creating a mock update which causes errors,
+            # call send_active_tasks directly with the chat_id
+            await query.message.reply_text("📋 Fetching your tasks...")
+            await send_active_tasks(chat_id, context)
         elif data == 'add_employee':
             await query.answer()
             await query.message.reply_text(
