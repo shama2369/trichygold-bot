@@ -1333,9 +1333,59 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
             await query.message.reply_text("📋 Fetching your tasks...")
             await send_active_tasks(chat_id, context)
         elif data == 'cmd_list_employees':
-            # Create a mock update to call the list_employees_command
-            mock_update = Update(update_id=0, message=query.message)
-            await list_employees_command(mock_update, context)
+            # Instead of creating a mock update, call the function directly
+            await query.answer("Fetching employee list...")
+            
+            try:
+                # Check if MongoDB is connected
+                if not db.is_connected():
+                    await query.message.reply_text(
+                        "⚠️ Database connection error. Please try again later or check with /dbstatus."
+                    )
+                    return
+                
+                # Get all employees from database
+                employees = list(db.employees.find())
+                
+                if not employees:
+                    await query.message.reply_text("📋 No employees found in the system.")
+                    return
+                
+                # Create a message with all employees
+                message = "📋 *Employee List*\n\n"
+                
+                # Create keyboard with remove buttons
+                keyboard = []
+                
+                for i, employee in enumerate(employees, 1):
+                    name = employee.get('name', 'Unknown')
+                    employee_chat_id = employee.get('chat_id', 'Unknown')
+                    
+                    message += f"{i}. 👤 *{name}* (ID: `{employee_chat_id}`)\n"
+                    
+                    # Add remove button for each employee
+                    keyboard.append([
+                        InlineKeyboardButton(f"❌ Remove {name}", callback_data=f"remove_employee_{employee_chat_id}")
+                    ])
+                
+                # Add a button to add new employees
+                keyboard.append([InlineKeyboardButton("➕ Add Employee", callback_data="add_employee")])
+                
+                # Send the message with the inline keyboard
+                await query.message.reply_text(
+                    message,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                
+                logger.info(f"Listed {len(employees)} employees for admin")
+                
+            except Exception as e:
+                logger.error(f"Error listing employees: {e}")
+                await query.message.reply_text(
+                    f"❌ Error listing employees: {str(e)}\n\n"
+                    f"Please try again or check database connection with /dbstatus."
+                )
         elif data == 'add_employee':
             await query.answer()
             await query.message.reply_text(
@@ -1351,15 +1401,91 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
                 await query.answer("⛔ Only administrators can remove employees")
                 return
                 
-            # Create a mock update with the employee chat ID as an argument
-            mock_update = Update(update_id=0, message=query.message)
-            context.args = [employee_chat_id]
+            await query.answer("Removing employee...")
             
-            # Call the remove_employee_command function
-            await remove_employee_command(mock_update, context)
-            
-            # Show updated employee list
-            await list_employees_command(mock_update, context)
+            try:
+                # Check if MongoDB is connected
+                if not db.is_connected():
+                    await query.message.reply_text(
+                        "⚠️ Database connection error. Please try again later or check with /dbstatus."
+                    )
+                    return
+                
+                # Check if employee exists
+                existing_employee = db.employees.find_one({'chat_id': employee_chat_id})
+                if not existing_employee:
+                    await query.message.reply_text(
+                        f"⚠️ No employee found with chat ID {employee_chat_id}."
+                    )
+                    return
+                
+                # Remove employee from database
+                result = db.employees.delete_one({'chat_id': employee_chat_id})
+                
+                if result.deleted_count > 0:
+                    logger.info(f"Removed employee: {existing_employee['name']} with chat ID {employee_chat_id}")
+                    
+                    # Confirm to admin
+                    await query.message.reply_text(
+                        f"✅ Employee removed successfully!\n\n"
+                        f"👤 Name: {existing_employee['name']}\n"
+                        f"📱 Chat ID: {employee_chat_id}"
+                    )
+                    
+                    # Try to notify the employee if possible
+                    try:
+                        await context.bot.send_message(
+                            chat_id=employee_chat_id,
+                            text="🔔 Your account has been removed from the TrichyGold Task Manager system by the administrator."
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to notify removed employee: {e}")
+                    
+                    # Show updated employee list after successful removal
+                    # Get all employees from database
+                    employees = list(db.employees.find())
+                    
+                    if not employees:
+                        await query.message.reply_text("📋 No employees found in the system.")
+                        return
+                    
+                    # Create a message with all employees
+                    message = "📋 *Updated Employee List*\n\n"
+                    
+                    # Create keyboard with remove buttons
+                    keyboard = []
+                    
+                    for i, employee in enumerate(employees, 1):
+                        name = employee.get('name', 'Unknown')
+                        employee_chat_id = employee.get('chat_id', 'Unknown')
+                        
+                        message += f"{i}. 👤 *{name}* (ID: `{employee_chat_id}`)\n"
+                        
+                        # Add remove button for each employee
+                        keyboard.append([
+                            InlineKeyboardButton(f"❌ Remove {name}", callback_data=f"remove_employee_{employee_chat_id}")
+                        ])
+                    
+                    # Add a button to add new employees
+                    keyboard.append([InlineKeyboardButton("➕ Add Employee", callback_data="add_employee")])
+                    
+                    # Send the message with the inline keyboard
+                    await query.message.reply_text(
+                        message,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+                else:
+                    await query.message.reply_text(
+                        f"❌ Failed to remove employee with chat ID {employee_chat_id}."
+                    )
+                    
+            except Exception as e:
+                logger.error(f"Error removing employee: {e}")
+                await query.message.reply_text(
+                    f"❌ Error removing employee: {str(e)}\n\n"
+                    f"Please try again or check database connection with /dbstatus."
+                )
             
     except Exception as e:
         logger.error(f"Error in handle_button_callback: {e}")
