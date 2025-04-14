@@ -257,8 +257,7 @@ async def process_button_callback(query, bot):
             except Exception as e:
                 logger.error(f"Error completing task {task_id}: {e}")
                 await query.message.reply_text(f"❌ Error: {str(e)}", parse_mode="Markdown")
-            else:
-                await query.message.reply_text(f"❌ Could not mark Task #{task_id} as complete.", parse_mode="Markdown")
+            # Removed the redundant else clause that was causing duplicate error messages
             
         # Handle inquiry buttons
         elif data.startswith('inquire_'):
