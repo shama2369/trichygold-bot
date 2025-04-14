@@ -851,19 +851,13 @@ async def list_employees_command(update: Update, context: ContextTypes.DEFAULT_T
             
         message = "📋 Registered Employees:\n\n" + "\n\n".join(employee_list)
         message += "\n\nTo add an employee:\n/add_employee <name> <telegram_id>"
+        message += "\n\nTo remove an employee:\n/remove_employee <telegram_id>"
         
-        # Create keyboard with buttons for each employee and add/remove options
-        keyboard = []
-        
-        # Add a remove button for each employee
-        for employee in employees:
-            name = employee.get('name')
-            emp_id = employee.get('chat_id')
-            if name and emp_id:
-                keyboard.append([InlineKeyboardButton(f"❌ Remove {name}", callback_data=f"remove_emp_{emp_id}")])
-        
-        # Add a button to add new employee
-        keyboard.append([InlineKeyboardButton("➕ Add New Employee", callback_data="add_employee")])
+        # Create keyboard with buttons for add/remove options
+        keyboard = [
+            [InlineKeyboardButton("➕ Add Employee", callback_data="add_employee")],
+            [InlineKeyboardButton("❌ Remove Employee", callback_data="remove_employee_prompt")]
+        ]
         
         reply_markup = InlineKeyboardMarkup(keyboard)
         
@@ -2341,6 +2335,17 @@ async def webhook():
                             await tasks_command(mock_update, mock_context)
                         else:
                             await query.message.reply_text(f"❌ Could not mark Task #{task_id} as complete.", parse_mode=ParseMode.MARKDOWN)
+                    elif data == 'remove_employee_prompt':
+                        # Show instructions for removing an employee
+                        remove_text = (
+                            "👤 *Remove Employee*\n\n"
+                            "Use the command:\n"
+                            "`/remove_employee <telegram_id>`\n\n"
+                            "Example:\n"
+                            "`/remove_employee 1234567890`\n\n"
+                            "You can find employee IDs in the employee list."
+                        )
+                        await query.message.reply_text(remove_text, parse_mode=ParseMode.MARKDOWN)
                 except Exception as e:
                     logger.error(f"Error in button handler: {e}")
                 
