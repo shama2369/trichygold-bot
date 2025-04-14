@@ -156,11 +156,14 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
             
         # Handle add employee info button
         elif data == 'add_employee_info':
-            await query.message.reply_text(
-                "To add a new employee, use the command:\n"
-                "/add_employee <n> <chat_id>\n\n"
-                "Example: /add_employee john 123456789"
+            add_text = (
+                "👤 *Add Employee*\n\n"
+                "Use the command:\n"
+                "`/add_employee <n> <chat_id>`\n\n"
+                "Example:\n"
+                "`/add_employee john 123456789`"
             )
+            await query.message.reply_text(add_text, parse_mode=ParseMode.MARKDOWN)
             
         # Handle remove employee info button
         elif data == 'remove_employee_info':

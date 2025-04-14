@@ -225,13 +225,6 @@ async def list_employees_command(update: Update, context: ContextTypes.DEFAULT_T
             parse_mode="Markdown"
         )
         
-        # Send a follow-up message with examples
-        examples = "*Examples:*\n"
-        examples += "`/add_employee john 123456789`\n"
-        examples += "`/remove_employee 123456789`"
-        
-        await update.message.reply_text(examples, parse_mode="Markdown")
-        
         logger.info(f"Listed {len(employees)} employees for admin")
         
     except Exception as e:
