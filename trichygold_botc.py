@@ -2004,6 +2004,39 @@ async def ping():
 async def health_check():
     return "Bot is running", 200
 
+async def mark_task_done(task_id: str, chat_id: str) -> bool:
+    """Mark a task as done and return success status"""
+    try:
+        # Check if database is connected
+        if not db.is_connected():
+            db.connect()
+            if not db.is_connected():
+                logger.error("Database connection failed in mark_task_done")
+                return False
+                
+        # Get task from database
+        task = db.tasks.find_one({"task_id": int(task_id), "completed": False})
+        
+        if not task:
+            logger.error(f"Task {task_id} not found or already completed")
+            return False
+            
+        # Update task as completed
+        result = db.tasks.update_one(
+            {"task_id": int(task_id)},
+            {"$set": {"completed": True, "completed_by": chat_id, "completed_at": datetime.now()}}
+        )
+        
+        if result.modified_count > 0:
+            logger.info(f"Task {task_id} marked as completed by {chat_id}")
+            return True
+        else:
+            logger.error(f"Failed to update task {task_id}")
+            return False
+    except Exception as e:
+        logger.error(f"Error in mark_task_done: {e}")
+        return False
+
 async def db_status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /dbstatus command to check MongoDB connection status"""
     chat_id = update.message.chat_id
@@ -2265,23 +2298,49 @@ async def webhook():
                 except Exception:
                     pass  # Ignore errors here to reduce network issues
                 
-                # Process different button types with minimal responses
+                # Process different button types with full functionality
                 try:
+                    # Create a mock update and context for command functions
+                    mock_update = Update(0, query.message)
+                    mock_context = ContextTypes.DEFAULT_TYPE.from_update(update, application)
+                    
                     if data == 'cmd_help':
-                        await query.message.reply_text("🔑 *Commands*: /start, /help, /assign, /tasks", parse_mode=ParseMode.MARKDOWN)
+                        await help_command(mock_update, mock_context)
                     elif data == 'cmd_list_employees':
-                        await query.message.reply_text("👥 *Employees*: 1. Rehan, 2. Shameem", parse_mode=ParseMode.MARKDOWN)
+                        await list_employees_command(mock_update, mock_context)
                     elif data == 'cmd_assign':
-                        await query.message.reply_text("📝 Use: /assign employee1,employee2 <task>", parse_mode=ParseMode.MARKDOWN)
+                        await query.message.reply_text(
+                            "📝 *Task Assignment*\n\n"
+                            "Use /assign employee1,employee2 <task> [time]\n\n"
+                            "Example: /assign rehan,shameem Check inventory 30m",
+                            parse_mode=ParseMode.MARKDOWN
+                        )
                     elif data == 'cmd_tasks' or data == 'cmd_done':
-                        await query.message.reply_text("📋 *Tasks*: 1. Check inventory, 2. Clean storage", parse_mode=ParseMode.MARKDOWN)
+                        await tasks_command(mock_update, mock_context)
                     elif data == 'cmd_clarify':
-                        await query.message.reply_text("💬 Use: /clarify <task_id> <details>", parse_mode=ParseMode.MARKDOWN)
+                        await query.message.reply_text(
+                            "💬 *Task Clarification*\n\n"
+                            "Use /clarify <task_id> <details>\n\n"
+                            "Example: /clarify 1 Please check the back storage area first",
+                            parse_mode=ParseMode.MARKDOWN
+                        )
                     elif data == 'cmd_broadcast':
-                        await query.message.reply_text("📢 Use: /broadcast <message>", parse_mode=ParseMode.MARKDOWN)
+                        await query.message.reply_text(
+                            "📢 *Broadcast Message*\n\n"
+                            "Use /broadcast <message>\n\n"
+                            "Example: /broadcast Meeting at 3pm today",
+                            parse_mode=ParseMode.MARKDOWN
+                        )
                     elif data.startswith('taskdone_'):
                         task_id = data.replace('taskdone_', '')
-                        await query.message.reply_text(f"✅ Task #{task_id} completed!", parse_mode=ParseMode.MARKDOWN)
+                        # Call the mark_task_done function
+                        success = await mark_task_done(task_id, chat_id)
+                        if success:
+                            await query.message.reply_text(f"✅ Task #{task_id} marked as complete!", parse_mode=ParseMode.MARKDOWN)
+                            # Refresh the task list
+                            await tasks_command(mock_update, mock_context)
+                        else:
+                            await query.message.reply_text(f"❌ Could not mark Task #{task_id} as complete.", parse_mode=ParseMode.MARKDOWN)
                 except Exception as e:
                     logger.error(f"Error in button handler: {e}")
                 
