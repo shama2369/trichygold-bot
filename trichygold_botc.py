@@ -322,7 +322,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"Select a command below:"
             )
             
-            # Create buttons for employee commands
+            # Create buttons for employee commands - simplified menu
             keyboard = [
                 [InlineKeyboardButton("📄 View Tasks", callback_data="cmd_tasks"),
                  InlineKeyboardButton("❓ Ask Questions", callback_data="cmd_inquire")],
@@ -1566,48 +1566,6 @@ async def task_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error in task_command: {e}")
         await update.message.reply_text("❌ An error occurred while fetching tasks.")
 
-async def mytasks_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /mytasks command for employees to view their tasks"""
-    try:
-        chat_id = str(update.message.chat_id)
-        employee_name = get_employee_name(chat_id)
-        
-        if not employee_name:
-            await update.message.reply_text("❌ Only registered employees can use this command!")
-            return
-            
-        # Get active tasks for this employee
-        employee_tasks = {
-            tid: task for tid, task in TASKS.items()
-            if employee_name in task['employees'] and task['status'] == 'active'
-        }
-        
-        if not employee_tasks:
-            await update.message.reply_text("📝 You have no active tasks at the moment.")
-            return
-            
-        message = "📋 Your Active Tasks:\n\n"
-        for task_id, task in employee_tasks.items():
-            message += (
-                f"Task #{task_id}:\n"
-                f"• Description: {task['task']}\n"
-                f"• Created: {task['created_at'].strftime('%I:%M %p')} (UAE)\n\n"
-            )
-            # Add action buttons for each task
-            keyboard = [
-                [
-                    InlineKeyboardButton("✅ Mark Done", callback_data=f"taskdone_{task_id}"),
-                    InlineKeyboardButton("❓ Ask Question", callback_data=f"inquire_{task_id}")
-                ]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await update.message.reply_text(message, reply_markup=reply_markup)
-            message = ""  # Reset for next task
-            
-    except Exception as e:
-        logger.error(f"Error in mytasks_command: {e}")
-        await update.message.reply_text("❌ An error occurred while fetching your tasks.")
-
 async def inquire_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /inquire command for employees to ask questions about tasks"""
     try:
@@ -2050,11 +2008,6 @@ async def db_status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_connected:
         # Get more detailed information
         try:
-            server_info = connection_details.get("server_info", {})
-            connections_info = server_info.get("connections", {})
-            active_connections = connections_info.get("current", "unknown")
-            available_connections = connections_info.get("available", "unknown")
-            
             # Check if employees collection exists and count documents
             try:
                 employee_count = db.employees.count_documents({})
@@ -2064,11 +2017,7 @@ async def db_status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             message = (
                 f"✅ MongoDB Connection Status: CONNECTED\n\n"
-                f"Server: {server_info.get('host', 'unknown')}\n"
-                f"Version: {server_info.get('version', 'unknown')}\n"
                 f"Database: {db.db.name}\n"
-                f"Active Connections: {active_connections}\n"
-                f"Available Connections: {available_connections}\n"
                 f"Last Connection Attempt: {connection_details.get('last_attempt', 'unknown')}\n\n"
                 f"{collection_status}\n\n"
                 f"Storage Mode: MongoDB\n\n"
@@ -2365,7 +2314,6 @@ async def main() -> None:
         application.add_handler(CommandHandler("notify", notify_command))
         application.add_handler(CommandHandler("broadcast", broadcast_command))
         application.add_handler(CommandHandler("list_employees", list_employees_command))
-        application.add_handler(CommandHandler("mytasks", mytasks_command))
         application.add_handler(CommandHandler("task", task_command))
         application.add_handler(CommandHandler("dbstatus", db_status_command))
         application.add_handler(CommandHandler("dbreconnect", db_reconnect_command))

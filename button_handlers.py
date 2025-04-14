@@ -62,11 +62,10 @@ async def process_button_callback(query, bot):
                     "`/remove_employee` - Remove an employee\n"
                 )
             else:
-                # Employee help text
+                # Employee help text - removed /mytasks as requested
                 help_text = (
-                    "📐 *Employee Commands*\n\n"
+                    "📋 Employee Commands\n\n"
                     "`/tasks` - View your tasks and mark them as completed\n"
-                    "`/mytasks` - Alternative way to view your tasks\n"
                     "`/notify` - Send message to admin\n\n"
                     "You can also use the buttons in the main menu to access these features."
                 )
@@ -182,10 +181,17 @@ async def process_button_callback(query, bot):
             task_id = int(data.split('_')[1])
             
             try:
-                # Get employee name for notification
+                # Check if this is admin or employee
                 from database import db
-                employee = db.employees.find_one({"chat_id": chat_id})
-                employee_name = employee.get("name", "Unknown") if employee else "Unknown"
+                import os
+                admin_id = os.getenv('ADMIN_ID', '1341853859')
+                
+                # Set the completer name based on whether this is admin or employee
+                if chat_id == admin_id:
+                    completer_name = "Admin"
+                else:
+                    employee = db.employees.find_one({"chat_id": chat_id})
+                    completer_name = employee.get("name", "Unknown") if employee else "Unknown"
                 
                 # Get task details before marking as complete
                 task = db.tasks.find_one({"task_id": task_id})
@@ -197,34 +203,39 @@ async def process_button_callback(query, bot):
                     await query.message.reply_text(f"❌ Task #{task_id} is already completed!", parse_mode="Markdown")
                     return
                     
-                # Update task status in database
-                update_result = db.tasks.update_one(
-                    {"task_id": task_id},
-                    {"$set": {
-                        "status": "completed",
-                        "completed": True,
-                        "completed_at": datetime.now(),
-                        "completed_by": employee_name
-                    }}
-                )
+                try:
+                    # Update task status in database
+                    update_result = db.tasks.update_one(
+                        {"task_id": task_id},
+                        {"$set": {
+                            "status": "completed",
+                            "completed": True,
+                            "completed_at": datetime.now(),
+                            "completed_by": completer_name
+                        }}
+                    )
+                except Exception as e:
+                    logger.error(f"Database error updating task {task_id}: {e}")
+                    await query.message.reply_text(f"❌ Database error: {str(e)}", parse_mode="Markdown")
+                    return
                 
                 if update_result.modified_count > 0:
                     # Notify admin about task completion
                     import os
                     admin_id = os.getenv('ADMIN_ID', '1341853859')
                     
-                    # Send notification to admin
+                    # Send notification to admin with proper formatting
                     await bot.send_message(
                         chat_id=admin_id,
-                        text=f"✅ *Task Completed*\n\n"
-                             f"*Task #{task_id}:* {task.get('task', 'Unknown task')}\n"
-                             f"*Completed by:* {employee_name}\n"
-                             f"*Time:* {datetime.now().strftime('%I:%M %p')}",
+                        text=f"✅ Task Completed\n\n"
+                             f"Task #{task_id}: {task.get('task', 'Unknown task')}\n"
+                             f"Completed by: {completer_name}\n"
+                             f"Time: {datetime.now().strftime('%I:%M %p')}",
                         parse_mode=ParseMode.MARKDOWN
                     )
                     
-                    # Confirm to employee
-                    await query.message.reply_text(f"✅ Task #{task_id} marked as complete!", parse_mode="Markdown")
+                    # Confirm to employee with consistent styling
+                    await query.message.reply_text(f"✅ Task #{task_id} marked as complete!")
                     
                     # Show updated task list
                     active_tasks = list(db.tasks.find({"status": {"$ne": "completed"}, "completed": {"$ne": True}}))
@@ -525,14 +536,15 @@ async def process_button_callback(query, bot):
                         f"Task: {task_description}"
                     )
                     
-                    # Notify assigned employees
+                    # Notify assigned employees with consistent styling
                     for emp_chat_id in assigned_to:
                         try:
                             await bot.send_message(
                                 chat_id=emp_chat_id,
-                                text=f"🗑️ *Task Cancelled*\n\n"
-                                     f"*Task #{task_id}:* {task_description}\n\n"
-                                     f"This task has been cancelled by the administrator on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}.",  # Update font styling
+                                text=f"🗑️ Task Cancelled\n\n"
+                                     f"Task #{task_id}: {task_description}\n\n"
+                                     f"This task has been cancelled by the administrator.\n"
+                                     f"Time: {datetime.now().strftime('%I:%M %p')}",
                                 parse_mode=ParseMode.MARKDOWN
                             )
                         except Exception as e:
