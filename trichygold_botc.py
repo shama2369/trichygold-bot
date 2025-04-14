@@ -245,7 +245,35 @@ def get_employee_name(chat_id):
         return None
 
 def format_task_message(task, minutes):
-    return f"📋 New Task Assigned!\n\nTask: {task}\nReminder: Every {minutes} minutes\n\nPlease reply to this message with:\n• Text updates\n• Voice messages\n• Files/documents\n• 'done' when completed"
+    """Format a task message with proper time display"""
+    # Format reminder interval in a user-friendly way
+    if minutes < 60:
+        reminder_text = f"Every {minutes} minutes"
+    elif minutes < 60 * 24:
+        hours = minutes / 60
+        if hours == 1:
+            reminder_text = "Every hour"
+        else:
+            reminder_text = f"Every {int(hours)} hours"
+    else:
+        days = minutes / (60 * 24)
+        if days == 1:
+            reminder_text = "Every day"
+        else:
+            reminder_text = f"Every {int(days)} days"
+    
+    # Format the message with Markdown
+    return (
+        f"📋 *New Task Assigned!*\n\n"
+        f"*Task:* {task}\n"
+        f"*Reminder:* {reminder_text}\n\n"
+        f"Please respond with:\n"
+        f"• Text updates\n"
+        f"• Voice messages\n"
+        f"• Files/documents\n"
+        f"• Photos\n"
+        f"\nOr mark as done when completed."
+    )
 
 def create_task_keyboard():
     keyboard = [
@@ -348,14 +376,28 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         
         # Parse employees
-        employees = [emp.strip() for emp in args[0].split(',')]
-        invalid_employees = [emp for emp in employees if emp not in EMPLOYEES]
+        employee_names = [emp.strip() for emp in args[0].split(',')]
+        
+        # Check if database is connected
+        if not db.is_connected():
+            await update.message.reply_text("❌ Database connection error. Please try again later.")
+            return
+            
+        # Get all employees from database
+        all_employees = list(db.employees.find())
+        available_employees = {emp['name'].lower(): emp['chat_id'] for emp in all_employees}
+        
+        # Check for invalid employee names
+        invalid_employees = [emp for emp in employee_names if emp.lower() not in available_employees]
         if invalid_employees:
             await update.message.reply_text(
                 f"❌ Unknown employees: {', '.join(invalid_employees)}\n"
-                f"Available: {', '.join(EMPLOYEES.keys())}"
+                f"Available: {', '.join(available_employees.keys())}"
             )
             return
+            
+        # Get chat IDs for the valid employees
+        employee_chat_ids = [available_employees[emp.lower()] for emp in employee_names]
         
         # Parse task and time units
         task_parts = args[1:]
@@ -388,116 +430,50 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Join the remaining parts as the task description
         task = ' '.join(task_parts)
         
-        # Get a unique task ID that doesn't exist in the database
-        global task_counter
-        task_counter += 1
-        task_id = task_counter
+        # Get the next task ID from the database
+        highest_task = db.tasks.find_one(sort=[('task_id', -1)])
+        task_id = 1 if not highest_task else highest_task['task_id'] + 1
         
-        # Check if this task_id already exists and find a new one if needed
-        existing_task = db.get_task(task_id)
-        if existing_task:
-            # Find the highest task_id in the database and use that + 1
-            try:
-                # Try to get the highest task_id from the database
-                if not db.in_memory_mode:
-                    # Use aggregation to find the highest task_id
-                    cursor = db.tasks.aggregate([{"$sort": {"task_id": -1}}, {"$limit": 1}])
-                    # Process cursor without using to_list
-                    highest_task = None
-                    for doc in cursor:
-                        highest_task = doc
-                        break
-                    
-                    if highest_task:
-                        task_id = highest_task["task_id"] + 1
-                        task_counter = task_id  # Update the counter for future use
-                    else:
-                        # If no tasks in database, start from a higher number to avoid conflicts
-                        task_id = max(100, task_counter + 10)
-                        task_counter = task_id
-                else:
-                    # In memory mode, find the highest task_id
-                    highest_id = 0
-                    for task in db.tasks_data:
-                        if task["task_id"] > highest_id:
-                            highest_id = task["task_id"]
-                    task_id = highest_id + 1
-                    task_counter = task_id
-            except Exception as e:
-                logger.warning(f"Error finding highest task_id: {e}")
-                # Use a random high number to avoid conflicts
-                task_id = task_counter + 100
-                task_counter = task_id
+        # Store task data
+        task_data = {
+            'task_id': task_id,
+            'task': task,
+            'assigned_by': 'Admin',
+            'assigned_to': employee_chat_ids,
+            'assigned_at': datetime.now(),
+            'reminder_interval': minutes,
+            'status': 'active',
+            'completed': False
+        }
         
-        # Store task in database
-        task_doc = db.create_task(task_id, task, employees, minutes)
-        
-        # Also store in global TASKS dictionary for backward compatibility
-        global TASKS
-        TASKS[task_id] = task_doc
+        # Store in database
+        db.tasks.insert_one(task_data)
         
         # Send task to each employee
-        for employee in employees:
-            chat_id = EMPLOYEES[employee]
-            keyboard = [
-                [
-                    InlineKeyboardButton("✅ Mark Done", callback_data=f"taskdone_{task_id}"),
-                    InlineKeyboardButton("❓ Ask Question", callback_data=f"inquire_{task_id}")
-                ]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            # Format time in Dubai timezone
-            dubai_tz = pytz.timezone('Asia/Dubai')
-            created_time = task_doc['created_at']
-            if hasattr(created_time, 'astimezone'):
-                created_time = created_time.astimezone(dubai_tz).strftime('%I:%M %p')
-            else:
-                # Handle non-timezone aware datetime objects
-                created_time = created_time.strftime('%I:%M %p')
-            
-            # Format reminder interval in a user-friendly way
-            reminder_text = ""
-            if minutes < 60:
-                reminder_text = f"Every {minutes} minutes"
-            elif minutes < 60 * 24:
-                hours = minutes / 60
-                if hours == 1:
-                    reminder_text = "Every hour"
-                else:
-                    reminder_text = f"Every {int(hours)} hours"
-            else:
-                days = minutes / (60 * 24)
-                if days == 1:
-                    reminder_text = "Every day"
-                else:
-                    reminder_text = f"Every {int(days)} days"
-                    
-            # Create buttons for task actions
-            keyboard = [
-                [InlineKeyboardButton("✅ Mark Done", callback_data=f"taskdone_{task_id}"),
-                 InlineKeyboardButton("❓ Ask Question", callback_data=f"inquire_{task_id}")]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            message = (
-                f"📋 New Task #{task_id}\n\n"
-                f"Task: {task}\n"
-                f"Created: {created_time} (UAE)\n"
-                f"Reminder: {reminder_text}"
-            )
-            
+        for i, emp_name in enumerate(employee_names):
+            emp_chat_id = employee_chat_ids[i]
             try:
+                # Format the task message
+                task_message = format_task_message(task, minutes)
+                
+                # Create keyboard with done button
+                keyboard = [
+                    [InlineKeyboardButton("✅ Mark as Done", callback_data=f"taskdone_{task_id}")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
                 await context.bot.send_message(
-                    chat_id=chat_id,
-                    text=message,
-                    reply_markup=reply_markup
+                    chat_id=emp_chat_id,
+                    text=task_message,
+                    reply_markup=reply_markup,
+                    parse_mode=ParseMode.MARKDOWN
                 )
-                logger.info(f"Task notification sent to {employee} (chat_id: {chat_id})")
+                
+                logger.info(f"Task {task_id} sent to {emp_name} ({emp_chat_id})")
             except Exception as e:
-                logger.error(f"Failed to send task to {employee}: {e}")
+                logger.error(f"Failed to send task to {emp_name}: {e}")
+                await update.message.reply_text(f"❌ Failed to send task to {emp_name}: {str(e)}")
         
-        # Use the same reminder_text format as in the employee message
         # Create buttons for admin task management - only include inquire button
         admin_keyboard = [
             [InlineKeyboardButton("❓ Ask Question", callback_data=f"inquire_{task_id}")]
