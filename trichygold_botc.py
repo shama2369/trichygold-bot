@@ -2340,56 +2340,11 @@ async def handle_callback_query(query):
         data = query.data
         chat_id = str(query.from_user.id)
         
-        # Create a mock update and context for command functions
-        mock_update = Update(0, query.message)
-        mock_context = ContextTypes.DEFAULT_TYPE.from_update(Update.de_json({"callback_query": query.to_dict()}, application.bot), application)
+        # Use the button_handlers module to handle the callback
+        # This avoids creating mock updates and contexts
+        from button_handlers import process_button_callback
+        await process_button_callback(query, application.bot)
         
-        # Process different button types
-        if data == 'cmd_help':
-            await help_command(mock_update, mock_context)
-        elif data == 'cmd_list_employees':
-            await list_employees_command(mock_update, mock_context)
-        elif data == 'cmd_assign':
-            await query.message.reply_text(
-                "📝 *Task Assignment*\n\n"
-                "Use /assign employee1,employee2 <task> [time]\n\n"
-                "Example: /assign rehan,shameem Check inventory 30m",
-                parse_mode=ParseMode.MARKDOWN
-            )
-        elif data == 'cmd_tasks' or data == 'cmd_done':
-            await tasks_command(mock_update, mock_context)
-        elif data == 'cmd_clarify':
-            await query.message.reply_text(
-                "💬 *Task Clarification*\n\n"
-                "Use /clarify <task_id> <details>\n\n"
-                "Example: /clarify 1 Please check the back storage area first",
-                parse_mode=ParseMode.MARKDOWN
-            )
-        elif data == 'cmd_broadcast':
-            await query.message.reply_text(
-                "📢 *Broadcast Message*\n\n"
-                "Use /broadcast <message>\n\n"
-                "Example: /broadcast Meeting at 3pm today",
-                parse_mode=ParseMode.MARKDOWN
-            )
-        elif data.startswith('taskdone_'):
-            task_id = data.replace('taskdone_', '')
-            success = await mark_task_done(task_id, chat_id)
-            if success:
-                await query.message.reply_text(f"✅ Task #{task_id} marked as complete!", parse_mode=ParseMode.MARKDOWN)
-                await tasks_command(mock_update, mock_context)
-            else:
-                await query.message.reply_text(f"❌ Could not mark Task #{task_id} as complete.", parse_mode=ParseMode.MARKDOWN)
-        elif data == 'remove_employee_prompt':
-            remove_text = (
-                "👤 *Remove Employee*\n\n"
-                "Use the command:\n"
-                "`/remove_employee <telegram_id>`\n\n"
-                "Example:\n"
-                "`/remove_employee 1234567890`\n\n"
-                "You can find employee IDs in the employee list."
-            )
-            await query.message.reply_text(remove_text, parse_mode=ParseMode.MARKDOWN)
     except Exception as e:
         logger.error(f"Error handling callback query: {e}")
 

@@ -12,38 +12,196 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle button callbacks from inline keyboards"""
+    """Handle button callbacks through the regular handler system"""
+    query = update.callback_query
+    
     try:
-        query = update.callback_query
-        data = query.data
-        chat_id = str(update.callback_query.from_user.id)
+        # Acknowledge the button press
+        await query.answer()
         
-        # Get admin ID from application data
-        YOUR_ID = context.application.bot_data.get('ADMIN_ID', '')
+        # Use the process_button_callback function to handle the callback
+        await process_button_callback(query, context.bot)
+        
+    except Exception as e:
+        logger.error(f"Error in handle_button_callback: {e}")
+        await query.answer("❌ An error occurred")
+        # Send a more detailed error message
+        await query.message.reply_text(f"Error: {str(e)}")
+
+
+async def process_button_callback(query, bot):
+    """Process button callbacks directly without creating mock updates"""
+    try:
+        data = query.data
+        chat_id = str(query.from_user.id)
+        
+        # Log the button press
+        logger.info(f"Processing button callback: {data} from user {chat_id}")
+        
+        # Get admin ID from environment variable
+        import os
+        YOUR_ID = os.getenv('ADMIN_ID', '1341853859')
         
         logger.info(f"Button callback received: {data} from user {chat_id}")
         
+        # Handle command buttons
+        if data == 'cmd_help':
+            help_text = (
+                "📚 *TrichyGold Task Manager Help*\n\n"
+                "*Admin Commands:*\n"
+                "`/assign` - Assign tasks to employees\n"
+                "`/tasks` - View and manage all tasks\n"
+                "`/clarify` - Add details to a task\n"
+                "`/broadcast` - Send message to all employees\n"
+                "`/list_employees` - View all employees\n"
+                "`/add_employee` - Add a new employee\n"
+                "`/remove_employee` - Remove an employee\n\n"
+                
+                "*Employee Commands:*\n"
+                "`/mytasks` - View your assigned tasks\n"
+                "`/done` - Mark tasks as completed\n"
+                "`/notify` - Send message to admin"
+            )
+            await query.message.reply_text(help_text, parse_mode="Markdown")
+            
+        elif data == 'cmd_list_employees':
+            # Show employee list directly
+            from database import db
+            employees = list(db.employees.find())
+            
+            if not employees:
+                await query.message.reply_text("📋 No employees found in the system.")
+                return
+            
+            # Create a message with all employees
+            message = "📋 *Employee List*\n\n"
+            
+            for i, employee in enumerate(employees, 1):
+                name = employee.get('name', 'Unknown')
+                employee_chat_id = employee.get('chat_id', 'Unknown')
+                message += f"{i}. 👤 *{name}* (ID: `{employee_chat_id}`)\n"
+            
+            # Add instructions for adding and removing employees
+            message += "\n*Employee Management Commands:*\n"
+            message += "• To add: `/add_employee <n> <chat_id>`\n"
+            message += "• To remove: `/remove_employee <chat_id>`\n"
+            
+            # Create keyboard with side-by-side buttons
+            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+            keyboard = [
+                [
+                    InlineKeyboardButton("➕ Add Employee", callback_data="add_employee_info"),
+                    InlineKeyboardButton("❌ Remove Employee", callback_data="remove_employee_info")
+                ]
+            ]
+            
+            await query.message.reply_text(
+                message,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode="Markdown"
+            )
+            
+        elif data == 'cmd_assign':
+            await query.message.reply_text(
+                "📝 *Task Assignment*\n\n"
+                "Use /assign employee1,employee2 <task> [time]\n\n"
+                "Example: /assign rehan,shameem Check inventory 30m",
+                parse_mode="Markdown"
+            )
+            
+        elif data == 'cmd_tasks' or data == 'cmd_done':
+            # Show tasks directly
+            from database import db
+            active_tasks = list(db.tasks.find({"completed": False}))
+            
+            if not active_tasks:
+                await query.message.reply_text("✅ No active tasks at this time.")
+                return
+                
+            # Create a message with all active tasks
+            message = "📝 *Active Tasks*\n\n"
+            
+            # Create keyboard with done buttons
+            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+            keyboard = []
+            
+            for task in active_tasks:
+                task_id = task.get('task_id')
+                task_text = task.get('task')
+                assigned_to = task.get('assigned_to', [])
+                
+                # Format assigned employees
+                assigned_names = []
+                for emp_id in assigned_to:
+                    emp = db.employees.find_one({"chat_id": emp_id})
+                    if emp:
+                        assigned_names.append(emp.get('name', 'Unknown'))
+                
+                assigned_str = ", ".join(assigned_names) if assigned_names else "Unassigned"
+                
+                message += f"#{task_id}: {task_text}\n"
+                message += f"Assigned to: {assigned_str}\n\n"
+                
+                # Add done button for each task
+                keyboard.append([
+                    InlineKeyboardButton(f"✅ Mark Task #{task_id} Done", callback_data=f"taskdone_{task_id}")
+                ])
+            
+            await query.message.reply_text(
+                message,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode="Markdown"
+            )
+            
+        elif data == 'cmd_clarify':
+            await query.message.reply_text(
+                "💬 *Task Clarification*\n\n"
+                "Use /clarify <task_id> <details>\n\n"
+                "Example: /clarify 1 Please check the back storage area first",
+                parse_mode="Markdown"
+            )
+            
+        elif data == 'cmd_broadcast':
+            await query.message.reply_text(
+                "📢 *Broadcast Message*\n\n"
+                "Use /broadcast <message>\n\n"
+                "Example: /broadcast Meeting at 3pm today",
+                parse_mode="Markdown"
+            )
+            
         # Handle task completion buttons
-        if data.startswith('taskdone_'):
+        elif data.startswith('taskdone_'):
             task_id = int(data.split('_')[1])
-            await query.answer()
             
-            # Create a mock update with the task ID as an argument
-            context.args = [str(task_id)]
+            # Handle task completion directly
+            from trichygold_botc import mark_task_done
             
-            # Import here to avoid circular imports
-            from trichygold_botc import taskdone_command
+            # Call mark_task_done directly
+            success = await mark_task_done(str(task_id), chat_id)
             
-            # Call the taskdone command
-            await taskdone_command(update, context)
+            if success:
+                await query.message.reply_text(f"✅ Task #{task_id} marked as complete!", parse_mode="Markdown")
+                
+                # Show updated task list
+                from database import db
+                active_tasks = list(db.tasks.find({"completed": False}))
+                
+                if active_tasks:
+                    task_message = "📋 *Active Tasks*\n\n"
+                    for task in active_tasks:
+                        task_message += f"#{task['task_id']} - {task['task']}\n"
+                    await query.message.reply_text(task_message, parse_mode="Markdown")
+                else:
+                    await query.message.reply_text("✅ No active tasks remaining!", parse_mode="Markdown")
+            else:
+                await query.message.reply_text(f"❌ Could not mark Task #{task_id} as complete.", parse_mode="Markdown")
             
         # Handle inquiry buttons
         elif data.startswith('inquire_'):
             task_id = int(data.split('_')[1])
-            await query.answer()
             
             # Set up context for inquiry
-            context.user_data['inquiring_task'] = task_id
+            # context.user_data['inquiring_task'] = task_id
             
             await query.message.reply_text(
                 f"📝 Send your question about Task #{task_id}\n"
@@ -178,7 +336,7 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
         elif data == 'add_test_employees':
             # Import test_employees handler
             from test_employees import handle_add_test_employees_callback
-            await handle_add_test_employees_callback(update, context)
+            await handle_add_test_employees_callback(query, bot)
             
         # Handle employee removal
         elif data.startswith('remove_employee_'):
@@ -221,17 +379,32 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
                 
                 # Try to notify the employee if possible
                 try:
-                    await context.bot.send_message(
+                    await bot.send_message(
                         chat_id=employee_chat_id,
                         text="🔔 Your account has been removed from the TrichyGold Task Manager system by the administrator."
                     )
                 except Exception as e:
                     logger.error(f"Failed to notify removed employee: {e}")
                     
-                # Refresh the employee list
-                # Import list_employees_command to avoid circular imports
-                from employee_handlers import list_employees_command
-                await list_employees_command(update, context)
+                # Show updated employee list
+                from database import db
+                employees = list(db.employees.find())
+                
+                if employees:
+                    message = "📋 *Updated Employee List*\n\n"
+                    
+                    for i, employee in enumerate(employees, 1):
+                        name = employee.get('name', 'Unknown')
+                        employee_chat_id = employee.get('chat_id', 'Unknown')
+                        message += f"{i}. 👤 *{name}* (ID: `{employee_chat_id}`)\n"
+                    
+                    message += "\n*Employee Management Commands:*\n"
+                    message += "• To add: `/add_employee <n> <chat_id>`\n"
+                    message += "• To remove: `/remove_employee <chat_id>`\n"
+                    
+                    await query.message.reply_text(message, parse_mode="Markdown")
+                else:
+                    await query.message.reply_text("📋 No employees found in the system.", parse_mode="Markdown")
             else:
                 await query.message.reply_text(f"❌ {message}")
                 
@@ -240,10 +413,9 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
             await query.message.reply_text("🔄 Employee removal cancelled.")
             
     except Exception as e:
-        logger.error(f"Error in handle_button_callback: {e}")
-        await query.answer("❌ An error occurred")
-        # Send a more detailed error message
-        await query.message.reply_text(
-            f"❌ An error occurred while processing your request: {str(e)}\n\n"
-            f"Please try again or contact the administrator."
-        )
+        logger.error(f"Error in process_button_callback: {e}")
+        # Send error message if possible
+        try:
+            await query.message.reply_text(f"Error processing button: {str(e)}")
+        except Exception:
+            pass  # If we can't send the error message, just log it
