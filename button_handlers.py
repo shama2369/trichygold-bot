@@ -3,6 +3,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 from database import db
+from datetime import datetime
 
 # Set up logging
 logging.basicConfig(
@@ -46,22 +47,29 @@ async def process_button_callback(query, bot):
         
         # Handle command buttons
         if data == 'cmd_help':
-            help_text = (
-                "📚 *TrichyGold Task Manager Help*\n\n"
-                "*Admin Commands:*\n"
-                "`/assign` - Assign tasks to employees\n"
-                "`/tasks` - View and manage all tasks\n"
-                "`/clarify` - Add details to a task\n"
-                "`/broadcast` - Send message to all employees\n"
-                "`/list_employees` - View all employees\n"
-                "`/add_employee` - Add a new employee\n"
-                "`/remove_employee` - Remove an employee\n\n"
-                
-                "*Employee Commands:*\n"
-                "`/mytasks` - View your assigned tasks\n"
-                "`/done` - Mark tasks as completed\n"
-                "`/notify` - Send message to admin"
-            )
+            # Check if user is admin
+            if chat_id == YOUR_ID:
+                # Admin help text
+                help_text = (
+                    "📐 *TrichyGold Task Manager Help*\n\n"
+                    "*Admin Commands:*\n"
+                    "`/assign` - Assign tasks to employees\n"
+                    "`/tasks` - View and manage all tasks\n"
+                    "`/clarify` - Add details to a task\n"
+                    "`/broadcast` - Send message to all employees\n"
+                    "`/list_employees` - View all employees\n"
+                    "`/add_employee` - Add a new employee\n"
+                    "`/remove_employee` - Remove an employee\n"
+                )
+            else:
+                # Employee help text
+                help_text = (
+                    "📐 *Employee Commands*\n\n"
+                    "`/tasks` - View your tasks and mark them as completed\n"
+                    "`/mytasks` - Alternative way to view your tasks\n"
+                    "`/notify` - Send message to admin\n\n"
+                    "You can also use the buttons in the main menu to access these features."
+                )
             await query.message.reply_text(help_text, parse_mode="Markdown")
             
         elif data == 'cmd_list_employees':
@@ -209,9 +217,9 @@ async def process_button_callback(query, bot):
                     await bot.send_message(
                         chat_id=admin_id,
                         text=f"✅ *Task Completed*\n\n"
-                             f"Task #{task_id}: {task.get('task', 'Unknown task')}\n"
-                             f"Completed by: {employee_name}\n"
-                             f"Time: {datetime.now().strftime('%I:%M %p')}",
+                             f"*Task #{task_id}:* {task.get('task', 'Unknown task')}\n"
+                             f"*Completed by:* {employee_name}\n"
+                             f"*Time:* {datetime.now().strftime('%I:%M %p')}",
                         parse_mode=ParseMode.MARKDOWN
                     )
                     
@@ -523,8 +531,8 @@ async def process_button_callback(query, bot):
                             await bot.send_message(
                                 chat_id=emp_chat_id,
                                 text=f"🗑️ *Task Cancelled*\n\n"
-                                     f"Task #{task_id}: {task_description}\n\n"
-                                     f"This task has been cancelled by the administrator.",
+                                     f"*Task #{task_id}:* {task_description}\n\n"
+                                     f"This task has been cancelled by the administrator on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}.",  # Update font styling
                                 parse_mode=ParseMode.MARKDOWN
                             )
                         except Exception as e:
