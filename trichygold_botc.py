@@ -2261,121 +2261,137 @@ async def remove_employee_command(update: Update, context: ContextTypes.DEFAULT_
 
 @app.route('/webhook', methods=['POST'])
 async def webhook():
+    """Handle incoming webhook requests from Telegram
+    
+    This optimized handler properly manages connections and prevents resource leaks
+    that could cause VPN alerts during idle periods.
+    """
+    # Use a single try-except block for the entire handler to ensure proper cleanup
     try:
-        # Use a timeout for request processing to avoid hanging connections
+        # Set a reasonable timeout for JSON parsing
         try:
-            data = await asyncio.wait_for(request.get_json(), timeout=3.0)
-            
-            # Only log minimal information to reduce log traffic
-            if 'callback_query' in data:
-                callback_data = data.get('callback_query', {}).get('data', '')
-                logger.info(f"Received callback: {callback_data}")
-            elif 'message' in data and 'text' in data.get('message', {}):
-                message_text = data.get('message', {}).get('text', '')
-                if message_text.startswith('/'):
-                    logger.info(f"Received command: {message_text}")
-                else:
-                    logger.info(f"Received message")
-            else:
-                logger.info(f"Received update")
-            
-            # Create an Update object from the JSON data
-            update = Update.de_json(data, application.bot)
-            
-            if not update:
-                logger.warning("Invalid update data")
-                return "OK", 200
-                
-            # Handle callback queries directly with minimal network usage
-            if update.callback_query:
-                query = update.callback_query
-                data = query.data
-                chat_id = str(query.from_user.id)
-                
-                # Acknowledge the button press with minimal data
-                try:
-                    await asyncio.wait_for(query.answer(), timeout=2.0)
-                except Exception:
-                    pass  # Ignore errors here to reduce network issues
-                
-                # Process different button types with full functionality
-                try:
-                    # Create a mock update and context for command functions
-                    mock_update = Update(0, query.message)
-                    mock_context = ContextTypes.DEFAULT_TYPE.from_update(update, application)
-                    
-                    if data == 'cmd_help':
-                        await help_command(mock_update, mock_context)
-                    elif data == 'cmd_list_employees':
-                        await list_employees_command(mock_update, mock_context)
-                    elif data == 'cmd_assign':
-                        await query.message.reply_text(
-                            "📝 *Task Assignment*\n\n"
-                            "Use /assign employee1,employee2 <task> [time]\n\n"
-                            "Example: /assign rehan,shameem Check inventory 30m",
-                            parse_mode=ParseMode.MARKDOWN
-                        )
-                    elif data == 'cmd_tasks' or data == 'cmd_done':
-                        await tasks_command(mock_update, mock_context)
-                    elif data == 'cmd_clarify':
-                        await query.message.reply_text(
-                            "💬 *Task Clarification*\n\n"
-                            "Use /clarify <task_id> <details>\n\n"
-                            "Example: /clarify 1 Please check the back storage area first",
-                            parse_mode=ParseMode.MARKDOWN
-                        )
-                    elif data == 'cmd_broadcast':
-                        await query.message.reply_text(
-                            "📢 *Broadcast Message*\n\n"
-                            "Use /broadcast <message>\n\n"
-                            "Example: /broadcast Meeting at 3pm today",
-                            parse_mode=ParseMode.MARKDOWN
-                        )
-                    elif data.startswith('taskdone_'):
-                        task_id = data.replace('taskdone_', '')
-                        # Call the mark_task_done function
-                        success = await mark_task_done(task_id, chat_id)
-                        if success:
-                            await query.message.reply_text(f"✅ Task #{task_id} marked as complete!", parse_mode=ParseMode.MARKDOWN)
-                            # Refresh the task list
-                            await tasks_command(mock_update, mock_context)
-                        else:
-                            await query.message.reply_text(f"❌ Could not mark Task #{task_id} as complete.", parse_mode=ParseMode.MARKDOWN)
-                    elif data == 'remove_employee_prompt':
-                        # Show instructions for removing an employee
-                        remove_text = (
-                            "👤 *Remove Employee*\n\n"
-                            "Use the command:\n"
-                            "`/remove_employee <telegram_id>`\n\n"
-                            "Example:\n"
-                            "`/remove_employee 1234567890`\n\n"
-                            "You can find employee IDs in the employee list."
-                        )
-                        await query.message.reply_text(remove_text, parse_mode=ParseMode.MARKDOWN)
-                except Exception as e:
-                    logger.error(f"Error in button handler: {e}")
-                
-                return "OK", 200
-            
-            # Process regular messages and commands
-            if update.message:
-                try:
-                    await asyncio.wait_for(application.process_update(update), timeout=5.0)
-                except Exception as e:
-                    logger.error(f"Error processing message: {e}")
-            
-            return "OK", 200
-            
+            data = await asyncio.wait_for(request.get_json(), timeout=2.0)
         except asyncio.TimeoutError:
-            logger.error("Request processing timed out")
-            return "OK", 200
+            logger.warning("Webhook request JSON parsing timed out")
+            return "OK", 200  # Return OK to prevent Telegram from retrying
         except Exception as e:
-            logger.error(f"Error processing request: {e}")
+            logger.error(f"Error parsing webhook request: {e}")
             return "OK", 200
+            
+        # Minimal logging to reduce network traffic
+        log_update_type(data)
+        
+        # Create an Update object from the JSON data
+        update = Update.de_json(data, application.bot)
+        if not update:
+            logger.warning("Invalid update data received")
+            return "OK", 200
+            
+        # Process the update based on its type
+        if update.callback_query:
+            # Handle callback queries (button presses)
+            await handle_callback_query(update.callback_query)
+        elif update.message:
+            # Handle regular messages and commands
+            try:
+                # Set a timeout for processing to prevent hanging
+                await asyncio.wait_for(application.process_update(update), timeout=4.0)
+            except asyncio.TimeoutError:
+                logger.error("Message processing timed out")
+            except Exception as e:
+                logger.error(f"Error processing message: {e}")
+                
+        # Always return OK to prevent Telegram from retrying
+        return "OK", 200
             
     except Exception as e:
-        logger.error(f"Webhook error: {e}")
+        logger.error(f"Unhandled webhook error: {e}")
         return "OK", 200
+        
+# Helper function to log update types with minimal information
+def log_update_type(data):
+    """Log minimal information about the update type"""
+    try:
+        if 'callback_query' in data:
+            callback_data = data.get('callback_query', {}).get('data', '')
+            logger.info(f"Received callback: {callback_data[:20]}" + ("..." if len(callback_data) > 20 else ""))
+        elif 'message' in data and 'text' in data.get('message', {}):
+            message_text = data.get('message', {}).get('text', '')
+            if message_text.startswith('/'):
+                command = message_text.split()[0]
+                logger.info(f"Received command: {command}")
+            else:
+                logger.info("Received text message")
+        else:
+            logger.info("Received non-text update")
+    except Exception as e:
+        logger.error(f"Error logging update type: {e}")
+
+# Helper function to handle callback queries
+async def handle_callback_query(query):
+    """Handle callback queries (button presses) with proper resource management"""
+    try:
+        # Acknowledge the button press with minimal data and a short timeout
+        try:
+            await asyncio.wait_for(query.answer(), timeout=1.0)
+        except Exception:
+            pass  # Continue even if acknowledgment fails
+        
+        data = query.data
+        chat_id = str(query.from_user.id)
+        
+        # Create a mock update and context for command functions
+        mock_update = Update(0, query.message)
+        mock_context = ContextTypes.DEFAULT_TYPE.from_update(Update.de_json({"callback_query": query.to_dict()}, application.bot), application)
+        
+        # Process different button types
+        if data == 'cmd_help':
+            await help_command(mock_update, mock_context)
+        elif data == 'cmd_list_employees':
+            await list_employees_command(mock_update, mock_context)
+        elif data == 'cmd_assign':
+            await query.message.reply_text(
+                "📝 *Task Assignment*\n\n"
+                "Use /assign employee1,employee2 <task> [time]\n\n"
+                "Example: /assign rehan,shameem Check inventory 30m",
+                parse_mode=ParseMode.MARKDOWN
+            )
+        elif data == 'cmd_tasks' or data == 'cmd_done':
+            await tasks_command(mock_update, mock_context)
+        elif data == 'cmd_clarify':
+            await query.message.reply_text(
+                "💬 *Task Clarification*\n\n"
+                "Use /clarify <task_id> <details>\n\n"
+                "Example: /clarify 1 Please check the back storage area first",
+                parse_mode=ParseMode.MARKDOWN
+            )
+        elif data == 'cmd_broadcast':
+            await query.message.reply_text(
+                "📢 *Broadcast Message*\n\n"
+                "Use /broadcast <message>\n\n"
+                "Example: /broadcast Meeting at 3pm today",
+                parse_mode=ParseMode.MARKDOWN
+            )
+        elif data.startswith('taskdone_'):
+            task_id = data.replace('taskdone_', '')
+            success = await mark_task_done(task_id, chat_id)
+            if success:
+                await query.message.reply_text(f"✅ Task #{task_id} marked as complete!", parse_mode=ParseMode.MARKDOWN)
+                await tasks_command(mock_update, mock_context)
+            else:
+                await query.message.reply_text(f"❌ Could not mark Task #{task_id} as complete.", parse_mode=ParseMode.MARKDOWN)
+        elif data == 'remove_employee_prompt':
+            remove_text = (
+                "👤 *Remove Employee*\n\n"
+                "Use the command:\n"
+                "`/remove_employee <telegram_id>`\n\n"
+                "Example:\n"
+                "`/remove_employee 1234567890`\n\n"
+                "You can find employee IDs in the employee list."
+            )
+            await query.message.reply_text(remove_text, parse_mode=ParseMode.MARKDOWN)
+    except Exception as e:
+        logger.error(f"Error handling callback query: {e}")
 
 async def main() -> None:
     """Start the bot."""
