@@ -199,22 +199,24 @@ async def list_employees_command(update: Update, context: ContextTypes.DEFAULT_T
         # Create a message with all employees
         message = "📋 *Employee List*\n\n"
         
-        # Create keyboard with remove buttons
-        keyboard = []
-        
         for i, employee in enumerate(employees, 1):
             name = employee.get('name', 'Unknown')
             employee_chat_id = employee.get('chat_id', 'Unknown')
             
             message += f"{i}. 👤 *{name}* (ID: `{employee_chat_id}`)\n"
-            
-            # Add remove button for each employee
-            keyboard.append([
-                InlineKeyboardButton(f"❌ Remove {name}", callback_data=f"remove_employee_{employee_chat_id}")
-            ])
         
-        # Add a button to add new employees
-        keyboard.append([InlineKeyboardButton("➕ Add Employee", callback_data="add_employee")])
+        # Add instructions for adding and removing employees
+        message += "\n*Employee Management Commands:*\n"
+        message += "• To add: `/add_employee <name> <chat_id>`\n"
+        message += "• To remove: `/remove_employee <chat_id>`\n"
+        
+        # Create keyboard with side-by-side buttons
+        keyboard = [
+            [
+                InlineKeyboardButton("➕ Add Employee", callback_data="add_employee_info"),
+                InlineKeyboardButton("❌ Remove Employee", callback_data="remove_employee_info")
+            ]
+        ]
         
         # Send the message with the inline keyboard
         await update.message.reply_text(
@@ -222,6 +224,13 @@ async def list_employees_command(update: Update, context: ContextTypes.DEFAULT_T
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
         )
+        
+        # Send a follow-up message with examples
+        examples = "*Examples:*\n"
+        examples += "`/add_employee john 123456789`\n"
+        examples += "`/remove_employee 123456789`"
+        
+        await update.message.reply_text(examples, parse_mode="Markdown")
         
         logger.info(f"Listed {len(employees)} employees for admin")
         

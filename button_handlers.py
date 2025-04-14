@@ -154,13 +154,21 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
                     logger.error(f"Error listing employees: {e}")
                     await query.message.reply_text(f"❌ Error listing employees: {str(e)}")
             
-        # Handle add employee button
-        elif data == 'add_employee':
-            await query.answer()
+        # Handle add employee info button
+        elif data == 'add_employee_info':
             await query.message.reply_text(
-                "To add a new employee, use the format:\n"
-                "/add_employee <name> <chat_id>\n\n"
-                "Example: /add_employee John 123456789"
+                "To add a new employee, use the command:\n"
+                "/add_employee <n> <chat_id>\n\n"
+                "Example: /add_employee john 123456789"
+            )
+            
+        # Handle remove employee info button
+        elif data == 'remove_employee_info':
+            await query.message.reply_text(
+                "To remove an employee, use the command:\n"
+                "/remove_employee <chat_id>\n\n"
+                "Example: /remove_employee 123456789\n\n"
+                "You can find employee IDs in the employee list."
             )
             
         # Handle add test employees button
