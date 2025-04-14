@@ -2229,153 +2229,82 @@ async def remove_employee_command(update: Update, context: ContextTypes.DEFAULT_
 @app.route('/webhook', methods=['POST'])
 async def webhook():
     try:
-        data = await request.get_json()
-        logger.info(f"Webhook received data: {data}")
-        
-        # Create an Update object from the JSON data
-        update = Update.de_json(data, application.bot)
-        
-        if update:
-            logger.info(f"Processing update ID: {update.update_id}")
+        # Use a timeout for request processing to avoid hanging connections
+        try:
+            data = await asyncio.wait_for(request.get_json(), timeout=3.0)
             
-            # Log more detailed information about the update
-            if update.message:
-                logger.info(f"Message from {update.message.from_user.id}: {update.message.text}")
-                if update.message.text and update.message.text.startswith('/'):
-                    logger.info(f"Command detected: {update.message.text}")
-            elif update.callback_query:
-                logger.info(f"Callback query from {update.callback_query.from_user.id}: {update.callback_query.data}")
+            # Only log minimal information to reduce log traffic
+            if 'callback_query' in data:
+                callback_data = data.get('callback_query', {}).get('data', '')
+                logger.info(f"Received callback: {callback_data}")
+            elif 'message' in data and 'text' in data.get('message', {}):
+                message_text = data.get('message', {}).get('text', '')
+                if message_text.startswith('/'):
+                    logger.info(f"Received command: {message_text}")
+                else:
+                    logger.info(f"Received message")
+            else:
+                logger.info(f"Received update")
+            
+            # Create an Update object from the JSON data
+            update = Update.de_json(data, application.bot)
+            
+            if not update:
+                logger.warning("Invalid update data")
+                return "OK", 200
                 
-                # DIRECT HANDLING OF BUTTON CALLBACKS
+            # Handle callback queries directly with minimal network usage
+            if update.callback_query:
+                query = update.callback_query
+                data = query.data
+                chat_id = str(query.from_user.id)
+                
+                # Acknowledge the button press with minimal data
                 try:
-                    query = update.callback_query
-                    data = query.data
-                    chat_id = str(query.from_user.id)
-                    
-                    logger.info(f"Button callback: {data} from user {chat_id}")
-                    
-                    # Handle button callbacks directly here
-                    try:
-                        await query.answer(f"Processing: {data}")
-                        logger.info(f"Sent answer notification for {data}")
-                    except Exception as answer_error:
-                        logger.error(f"Error sending answer notification: {answer_error}")
-                    
+                    await asyncio.wait_for(query.answer(), timeout=2.0)
+                except Exception:
+                    pass  # Ignore errors here to reduce network issues
+                
+                # Process different button types with minimal responses
+                try:
                     if data == 'cmd_help':
-                        logger.info(f"Processing help button for user {chat_id}")
-                        help_text = (
-                            "🔑 *TrichyGold Bot Commands*\n\n"
-                            "/start - Start the bot\n"
-                            "/help - Show this help message\n"
-                            "/assign - Assign tasks to employees\n"
-                            "/tasks - View and manage tasks\n"
-                            "/clarify - Add details to tasks\n"
-                            "/broadcast - Send message to all employees\n"
-                            "/list_employees - List all registered employees\n"
-                        )
-                        try:
-                            await query.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN)
-                            logger.info(f"Sent help message to user {chat_id}")
-                        except Exception as reply_error:
-                            logger.error(f"Error sending help message: {reply_error}")
+                        await query.message.reply_text("🔑 *Commands*: /start, /help, /assign, /tasks", parse_mode=ParseMode.MARKDOWN)
                     elif data == 'cmd_list_employees':
-                        logger.info(f"Processing employee list button for user {chat_id}")
-                        # Direct employee listing
-                        employee_text = "👥 *Employee List*\n\n1. 👤 *Rehan* (ID: `123456789`)\n2. 👤 *Shameem* (ID: `987654321`)\n"
-                        try:
-                            await query.message.reply_text(employee_text, parse_mode=ParseMode.MARKDOWN)
-                            logger.info(f"Sent employee list to user {chat_id}")
-                        except Exception as reply_error:
-                            logger.error(f"Error sending employee list: {reply_error}")
+                        await query.message.reply_text("👥 *Employees*: 1. Rehan, 2. Shameem", parse_mode=ParseMode.MARKDOWN)
                     elif data == 'cmd_assign':
-                        logger.info(f"Processing assign button for user {chat_id}")
-                        try:
-                            await query.message.reply_text(
-                                "📝 *Task Assignment*\n\n"
-                                "Use /assign employee1,employee2 <task> [time]\n\n"
-                                "Example: /assign rehan,shameem Check inventory 30m",
-                                parse_mode=ParseMode.MARKDOWN
-                            )
-                            logger.info(f"Sent assign help to user {chat_id}")
-                        except Exception as reply_error:
-                            logger.error(f"Error sending assign help: {reply_error}")
+                        await query.message.reply_text("📝 Use: /assign employee1,employee2 <task>", parse_mode=ParseMode.MARKDOWN)
                     elif data == 'cmd_tasks' or data == 'cmd_done':
-                        logger.info(f"Processing tasks button for user {chat_id}")
-                        try:
-                            # Show sample tasks
-                            message = "📋 *Active Tasks*\n\n"
-                            message += "*Task #1*\n"
-                            message += "📌 Check inventory\n"
-                            message += "👤 Assigned to: Rehan, Shameem\n\n"
-                            
-                            message += "*Task #2*\n"
-                            message += "📌 Clean storage area\n"
-                            message += "👤 Assigned to: Rehan\n\n"
-                            
-                            # Add task action buttons
-                            keyboard = [
-                                [InlineKeyboardButton("✅ Mark Task #1 Complete", callback_data="taskdone_1")],
-                                [InlineKeyboardButton("✅ Mark Task #2 Complete", callback_data="taskdone_2")],
-                                [InlineKeyboardButton("🔄 Refresh Tasks", callback_data="cmd_tasks")]
-                            ]
-                            
-                            await query.message.reply_text(
-                                message, 
-                                parse_mode=ParseMode.MARKDOWN,
-                                reply_markup=InlineKeyboardMarkup(keyboard)
-                            )
-                            logger.info(f"Sent tasks list to user {chat_id}")
-                        except Exception as reply_error:
-                            logger.error(f"Error sending tasks list: {reply_error}")
+                        await query.message.reply_text("📋 *Tasks*: 1. Check inventory, 2. Clean storage", parse_mode=ParseMode.MARKDOWN)
                     elif data == 'cmd_clarify':
-                        logger.info(f"Processing clarify button for user {chat_id}")
-                        try:
-                            await query.message.reply_text(
-                                "💬 *Task Clarification*\n\n"
-                                "Use /clarify <task_id> <details>\n\n"
-                                "Example: /clarify 1 Please check the back storage area first",
-                                parse_mode=ParseMode.MARKDOWN
-                            )
-                            logger.info(f"Sent clarify help to user {chat_id}")
-                        except Exception as reply_error:
-                            logger.error(f"Error sending clarify help: {reply_error}")
+                        await query.message.reply_text("💬 Use: /clarify <task_id> <details>", parse_mode=ParseMode.MARKDOWN)
                     elif data == 'cmd_broadcast':
-                        logger.info(f"Processing broadcast button for user {chat_id}")
-                        try:
-                            await query.message.reply_text(
-                                "📢 *Broadcast Message*\n\n"
-                                "Use /broadcast <message>\n\n"
-                                "Example: /broadcast Meeting at 3pm today",
-                                parse_mode=ParseMode.MARKDOWN
-                            )
-                            logger.info(f"Sent broadcast help to user {chat_id}")
-                        except Exception as reply_error:
-                            logger.error(f"Error sending broadcast help: {reply_error}")
-                    logger.info(f"Successfully processed button callback: {data}")
-                except Exception as button_error:
-                    logger.error(f"Error processing button callback: {button_error}")
-                    try:
-                        await query.message.reply_text(f"❌ Error: {str(button_error)}")
-                    except Exception:
-                        pass
+                        await query.message.reply_text("📢 Use: /broadcast <message>", parse_mode=ParseMode.MARKDOWN)
+                    elif data.startswith('taskdone_'):
+                        task_id = data.replace('taskdone_', '')
+                        await query.message.reply_text(f"✅ Task #{task_id} completed!", parse_mode=ParseMode.MARKDOWN)
+                except Exception as e:
+                    logger.error(f"Error in button handler: {e}")
+                
                 return "OK", 200
             
-            # Process the update through the application for non-button updates
-            try:
-                if not update.callback_query:  # Skip if it's a button callback (already handled above)
-                    await application.process_update(update)
-                    logger.info(f"Successfully processed update ID: {update.update_id}")
-            except Exception as process_error:
-                logger.error(f"Error processing update: {process_error}")
-                # Still return OK to Telegram to prevent retries
-                return "OK", 200
-        else:
-            logger.warning("Received invalid update data")
+            # Process regular messages and commands
+            if update.message:
+                try:
+                    await asyncio.wait_for(application.process_update(update), timeout=5.0)
+                except Exception as e:
+                    logger.error(f"Error processing message: {e}")
             
-        return "OK", 200
+            return "OK", 200
+            
+        except asyncio.TimeoutError:
+            logger.error("Request processing timed out")
+            return "OK", 200
+        except Exception as e:
+            logger.error(f"Error processing request: {e}")
+            return "OK", 200
+            
     except Exception as e:
-        logger.error(f"Error in webhook handler: {e}")
-        # Still return OK to Telegram to prevent retries
+        logger.error(f"Webhook error: {e}")
         return "OK", 200
 
 async def main() -> None:
@@ -2489,17 +2418,40 @@ async def main() -> None:
             if not service_url:
                 service_url = f"https://{os.environ.get('RENDER_SERVICE_NAME') or 'your-app'}.onrender.com"
                 
-            # Set up webhook
-            webhook_url = f"{service_url}/webhook"
-            logger.info(f"Running on Render. Setting webhook to: {webhook_url}")
-            
-            # First, delete any existing webhook to ensure a clean setup
-            logger.info("Deleting existing webhook...")
-            await application.bot.delete_webhook()
-            
-            # Set the webhook with the correct parameters
-            logger.info(f"Setting webhook to: {webhook_url}")
-            await application.bot.set_webhook(webhook_url, allowed_updates=['message', 'callback_query', 'inline_query'])
+            # Set up webhook with reduced connection frequency
+            try:
+                # Get the webhook info with a timeout to avoid hanging connections
+                try:
+                    webhook_info = await asyncio.wait_for(application.bot.get_webhook_info(), timeout=5.0)
+                    logger.info(f"Current webhook URL: {webhook_info.url}")
+                    
+                    # Only update webhook if it's not already set correctly
+                    webhook_url = f"{service_url}/webhook"
+                    
+                    if webhook_info.url != webhook_url:
+                        # Delete existing webhook
+                        logger.info("Deleting existing webhook...")
+                        await asyncio.wait_for(application.bot.delete_webhook(), timeout=5.0)
+                        
+                        # Set up webhook with a short max_connections to reduce network traffic
+                        logger.info(f"Setting webhook URL to: {webhook_url}")
+                        await asyncio.wait_for(
+                            application.bot.set_webhook(
+                                webhook_url,
+                                max_connections=1,  # Reduce concurrent connections
+                                drop_pending_updates=True  # Ignore old updates to reduce traffic
+                            ), 
+                            timeout=5.0
+                        )
+                        logger.info("Webhook setup complete!")
+                    else:
+                        logger.info("Webhook already correctly configured, skipping update")
+                except asyncio.TimeoutError:
+                    logger.error("Webhook setup timed out, continuing with current configuration")
+                except Exception as e:
+                    logger.error(f"Error setting up webhook: {e}")
+            except Exception as e:
+                logger.error(f"Webhook setup failed: {e}")
             
             # Register commands with BotFather
             logger.info("Registering commands with BotFather...")
