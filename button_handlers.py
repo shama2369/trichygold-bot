@@ -173,26 +173,71 @@ async def process_button_callback(query, bot):
         elif data.startswith('taskdone_'):
             task_id = int(data.split('_')[1])
             
-            # Handle task completion directly
-            from trichygold_botc import mark_task_done
-            
-            # Call mark_task_done directly
-            success = await mark_task_done(str(task_id), chat_id)
-            
-            if success:
-                await query.message.reply_text(f"✅ Task #{task_id} marked as complete!", parse_mode="Markdown")
-                
-                # Show updated task list
+            try:
+                # Get employee name for notification
                 from database import db
-                active_tasks = list(db.tasks.find({"completed": False}))
+                employee = db.employees.find_one({"chat_id": chat_id})
+                employee_name = employee.get("name", "Unknown") if employee else "Unknown"
                 
-                if active_tasks:
-                    task_message = "📋 *Active Tasks*\n\n"
-                    for task in active_tasks:
-                        task_message += f"#{task['task_id']} - {task['task']}\n"
-                    await query.message.reply_text(task_message, parse_mode="Markdown")
+                # Get task details before marking as complete
+                task = db.tasks.find_one({"task_id": task_id})
+                if not task:
+                    await query.message.reply_text(f"❌ Task #{task_id} not found.", parse_mode="Markdown")
+                    return
+                    
+                if task.get("status") == "completed" or task.get("completed", False):
+                    await query.message.reply_text(f"❌ Task #{task_id} is already completed!", parse_mode="Markdown")
+                    return
+                    
+                # Update task status in database
+                update_result = db.tasks.update_one(
+                    {"task_id": task_id},
+                    {"$set": {
+                        "status": "completed",
+                        "completed": True,
+                        "completed_at": datetime.now(),
+                        "completed_by": employee_name
+                    }}
+                )
+                
+                if update_result.modified_count > 0:
+                    # Notify admin about task completion
+                    import os
+                    admin_id = os.getenv('ADMIN_ID', '1341853859')
+                    
+                    # Send notification to admin
+                    await bot.send_message(
+                        chat_id=admin_id,
+                        text=f"✅ *Task Completed*\n\n"
+                             f"Task #{task_id}: {task.get('task', 'Unknown task')}\n"
+                             f"Completed by: {employee_name}\n"
+                             f"Time: {datetime.now().strftime('%I:%M %p')}",
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+                    
+                    # Confirm to employee
+                    await query.message.reply_text(f"✅ Task #{task_id} marked as complete!", parse_mode="Markdown")
+                    
+                    # Show updated task list
+                    active_tasks = list(db.tasks.find({"status": {"$ne": "completed"}, "completed": {"$ne": True}}))
+                    
+                    if active_tasks:
+                        task_message = "📋 *Your Active Tasks*\n\n"
+                        for task in active_tasks:
+                            if str(chat_id) in [str(cid) for cid in task.get('assigned_to', [])]:
+                                task_message += f"#{task['task_id']} - {task['task']}\n"
+                        
+                        if task_message != "📋 *Your Active Tasks*\n\n":
+                            await query.message.reply_text(task_message, parse_mode="Markdown")
+                        else:
+                            await query.message.reply_text("✅ You have no active tasks remaining!", parse_mode="Markdown")
+                    else:
+                        await query.message.reply_text("✅ You have no active tasks remaining!", parse_mode="Markdown")
                 else:
-                    await query.message.reply_text("✅ No active tasks remaining!", parse_mode="Markdown")
+                    await query.message.reply_text(f"❌ Could not mark Task #{task_id} as complete.", parse_mode="Markdown")
+            except Exception as e:
+                logger.error(f"Error completing task {task_id}: {e}")
+                await query.message.reply_text(f"❌ Error: {str(e)}", parse_mode="Markdown")
             else:
                 await query.message.reply_text(f"❌ Could not mark Task #{task_id} as complete.", parse_mode="Markdown")
             
@@ -312,12 +357,12 @@ async def process_button_callback(query, bot):
                     logger.error(f"Error listing employees: {e}")
                     await query.message.reply_text(f"❌ Error listing employees: {str(e)}")
             
-        # Handle add employee info button
+        # Handle add employee info
         elif data == 'add_employee_info':
             add_text = (
                 "👤 *Add Employee*\n\n"
                 "Use the command:\n"
-                "`/add_employee <n> <chat_id>`\n\n"
+                "`/add_employee <name> <chat_id>`\n\n"
                 "Example:\n"
                 "`/add_employee john 123456789`"
             )
@@ -448,6 +493,7 @@ async def process_button_callback(query, bot):
                 
             # Ensure we have the necessary imports
             from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+            from database import db
                 
             try:
                 # Get task details before deletion for notification
