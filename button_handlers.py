@@ -423,6 +423,7 @@ async def process_button_callback(query, bot):
                 return
                 
             # Create confirmation buttons
+            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
             keyboard = [
                 [
                     InlineKeyboardButton("✅ Yes, delete", callback_data=f"confirm_delete_task_{task_id}"),
@@ -444,6 +445,9 @@ async def process_button_callback(query, bot):
             if chat_id != YOUR_ID:
                 await query.answer("⛔ Only administrators can delete tasks.")
                 return
+                
+            # Ensure we have the necessary imports
+            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
                 
             try:
                 # Get task details before deletion for notification
