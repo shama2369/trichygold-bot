@@ -1998,6 +1998,12 @@ async def ping():
 async def health_check():
     return "Bot is running", 200
 
+# Add a ping endpoint for uptime monitoring
+@app.route('/ping')
+async def ping():
+    logger.info("Ping received from uptime monitor")
+    return "Pong", 200
+
 async def mark_task_done(task_id: str, chat_id: str) -> bool:
     """Mark a task as done and return success status"""
     try:
