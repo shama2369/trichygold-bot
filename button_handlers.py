@@ -412,6 +412,83 @@ async def process_button_callback(query, bot):
         elif data == 'cancel_remove':
             await query.message.reply_text("🔄 Employee removal cancelled.")
             
+        # Handle task deletion
+        elif data.startswith('delete_task_'):
+            # Extract task ID from callback data
+            task_id = int(data.split('_')[2])
+            
+            # Check if user is admin
+            if chat_id != YOUR_ID:
+                await query.answer("⛔ Only administrators can delete tasks.")
+                return
+                
+            # Create confirmation buttons
+            keyboard = [
+                [
+                    InlineKeyboardButton("✅ Yes, delete", callback_data=f"confirm_delete_task_{task_id}"),
+                    InlineKeyboardButton("❌ No, cancel", callback_data="cancel_delete_task")
+                ]
+            ]
+            
+            await query.message.reply_text(
+                f"⚠️ Are you sure you want to delete Task #{task_id}?",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            
+        # Handle confirmation of task deletion
+        elif data.startswith('confirm_delete_task_'):
+            # Extract task ID from callback data
+            task_id = int(data.split('_')[3])
+            
+            # Check if user is admin
+            if chat_id != YOUR_ID:
+                await query.answer("⛔ Only administrators can delete tasks.")
+                return
+                
+            try:
+                # Get task details before deletion for notification
+                task = db.tasks.find_one({'task_id': task_id})
+                
+                if not task:
+                    await query.message.reply_text(f"❌ Task #{task_id} not found.")
+                    return
+                    
+                # Get task details
+                task_description = task.get('task', 'Unknown task')
+                assigned_to = task.get('assigned_to', [])
+                
+                # Delete task from database
+                result = db.tasks.delete_one({'task_id': task_id})
+                
+                if result.deleted_count > 0:
+                    # Confirm to admin
+                    await query.message.reply_text(
+                        f"✅ Task #{task_id} deleted successfully!\n\n"
+                        f"Task: {task_description}"
+                    )
+                    
+                    # Notify assigned employees
+                    for emp_chat_id in assigned_to:
+                        try:
+                            await bot.send_message(
+                                chat_id=emp_chat_id,
+                                text=f"🗑️ *Task Cancelled*\n\n"
+                                     f"Task #{task_id}: {task_description}\n\n"
+                                     f"This task has been cancelled by the administrator.",
+                                parse_mode=ParseMode.MARKDOWN
+                            )
+                        except Exception as e:
+                            logger.error(f"Failed to notify employee {emp_chat_id} about task deletion: {e}")
+                else:
+                    await query.message.reply_text(f"❌ Failed to delete Task #{task_id}.")
+            except Exception as e:
+                logger.error(f"Error deleting task {task_id}: {e}")
+                await query.message.reply_text(f"❌ Error deleting task: {str(e)}")
+                
+        # Handle cancellation of task deletion
+        elif data == 'cancel_delete_task':
+            await query.message.reply_text("🔄 Task deletion cancelled.")
+            
     except Exception as e:
         logger.error(f"Error in process_button_callback: {e}")
         # Send error message if possible

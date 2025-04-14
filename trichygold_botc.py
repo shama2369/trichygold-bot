@@ -474,17 +474,36 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 logger.error(f"Failed to send task to {emp_name}: {e}")
                 await update.message.reply_text(f"❌ Failed to send task to {emp_name}: {str(e)}")
         
-        # Create buttons for admin task management - only include inquire button
+        # Format reminder text for admin confirmation message
+        if minutes < 60:
+            reminder_text = f"Every {minutes} minutes"
+        elif minutes < 60 * 24:
+            hours = minutes / 60
+            if hours == 1:
+                reminder_text = "Every hour"
+            else:
+                reminder_text = f"Every {int(hours)} hours"
+        else:
+            days = minutes / (60 * 24)
+            if days == 1:
+                reminder_text = "Every day"
+            else:
+                reminder_text = f"Every {int(days)} days"
+        
+        # Create buttons for admin task management
         admin_keyboard = [
-            [InlineKeyboardButton("❓ Ask Question", callback_data=f"inquire_{task_id}")]
+            [InlineKeyboardButton("❓ Ask Question", callback_data=f"inquire_{task_id}"),
+             InlineKeyboardButton("🗑️ Delete Task", callback_data=f"delete_task_{task_id}")]
         ]
         admin_reply_markup = InlineKeyboardMarkup(admin_keyboard)
         
+        # Send confirmation to admin
         await update.message.reply_text(
-            f"✅ Task #{task_id} assigned to: {', '.join(employees)}\n"
+            f"✅ Task #{task_id} assigned to: {', '.join(employee_names)}\n"
             f"Task: {task}\n"
             f"Reminders: {reminder_text}",
-            reply_markup=admin_reply_markup
+            reply_markup=admin_reply_markup,
+            parse_mode=ParseMode.MARKDOWN
         )
         
         # Schedule reminder
