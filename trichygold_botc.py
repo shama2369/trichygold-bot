@@ -2432,10 +2432,19 @@ async def main() -> None:
             logger.info("Registering commands with BotFather...")
             from telegram import BotCommand
             from telegram.constants import BotCommandScopeChat
-            # Different commands for admin and regular users
+            # First set default commands for all users (only employee commands)
+            employee_commands = [
+                BotCommand("start", "Start the bot and show main menu"),
+                BotCommand("help", "Show help information"),
+                BotCommand("tasks", "View your tasks"),
+                BotCommand("notify", "Send message to admin")
+            ]
+            # Set these as the default commands for all users
+            await application.bot.set_my_commands(employee_commands)
+            
+            # Then set admin-specific commands just for the admin user
             if chat_id == YOUR_ID:
-                # Admin commands
-                commands = [
+                admin_commands = [
                     BotCommand("start", "Start the bot and show main menu"),
                     BotCommand("help", "Show help information"),
                     BotCommand("assign", "Assign tasks to employees"),
@@ -2444,17 +2453,9 @@ async def main() -> None:
                     BotCommand("add_employee", "Add a new employee"),
                     BotCommand("remove_employee", "Remove an employee")
                 ]
-                await application.bot.set_my_commands(commands)
-            else:
-                # Employee commands - only essential ones
-                commands = [
-                    BotCommand("start", "Start the bot and show main menu"),
-                    BotCommand("help", "Show help information"),
-                    BotCommand("tasks", "View your tasks"),
-                    BotCommand("notify", "Send message to admin")
-                ]
-                # Set commands for this specific user
-                await application.bot.set_my_commands(commands, scope=BotCommandScopeChat(chat_id))
+                # Override commands just for the admin
+                from telegram.constants import BotCommandScopeChat
+                await application.bot.set_my_commands(admin_commands, scope=BotCommandScopeChat(YOUR_ID))
             
             # Verify webhook setup
             webhook_info = await application.bot.get_webhook_info()
