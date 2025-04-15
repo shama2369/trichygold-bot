@@ -649,10 +649,10 @@ async def tasks_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             employee_tasks = [task for task in active_tasks if str(chat_id) in [str(cid) for cid in task.get('assigned_to', [])]]
             
             if not employee_tasks:
-                await update.message.reply_text("📝 You have no active tasks at the moment.")
+                await update.message.reply_text("📝 *You have no active tasks at the moment.*", parse_mode=ParseMode.MARKDOWN)
                 return
                 
-            message = "📋 Your Active Tasks:\n\n"
+            message = "📋 *Your Active Tasks*\n\n"
             
             # Display each task with action buttons
             for task in employee_tasks:
@@ -661,9 +661,9 @@ async def tasks_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 created_at = task.get('created_at', datetime.now()).strftime('%I:%M %p')
                 
                 task_message = (
-                    f"Task #{task_id}:\n"
-                    f"• Description: {task_desc}\n"
-                    f"• Created: {created_at} (UAE)\n\n"
+                    f"*Task #{task_id}*\n"
+                    f"• *Description:* {task_desc}\n"
+                    f"• *Created:* {created_at} (UAE)\n\n"
                 )
                 
                 # Add action buttons for each task
@@ -674,11 +674,11 @@ async def tasks_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     ]
                 ]
                 reply_markup = InlineKeyboardMarkup(keyboard)
-                await update.message.reply_text(task_message, reply_markup=reply_markup)
+                await update.message.reply_text(task_message, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
             
     except Exception as e:
         logger.error(f"Error in tasks_command: {e}")
-        await update.message.reply_text("❌ An error occurred while fetching tasks.")
+        await update.message.reply_text("❌ *An error occurred while fetching tasks.*", parse_mode=ParseMode.MARKDOWN)
 
 async def handle_task_completion(update: Update, context: ContextTypes.DEFAULT_TYPE, task_id: int, is_admin: bool, employee_name: str = None):
     """Handle task completion for both admin and employees"""
@@ -1499,63 +1499,64 @@ async def task_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Get employee name from args
         employee_name = " ".join(args).strip()
         
-        # Get all employees
-        employees = db.get_employees()
+        # Get all employees directly from MongoDB
+        employees = list(db.employees.find())
         
-        # Find the employee with the given name
+        # Find the employee with the given name (more flexible matching)
         employee_id = None
         for emp in employees:
-            if emp['name'].lower() == employee_name.lower():
-                employee_id = emp['chat_id']
-                employee_name = emp['name']  # Use the correct case
+            # Check if the employee name contains the search term (case insensitive)
+            if employee_name.lower() in emp.get('name', '').lower():
+                employee_id = emp.get('chat_id')
+                employee_name = emp.get('name')  # Use the correct case
                 break
         
         if not employee_id:
-            await update.message.reply_text(f"❌ No employee found with name '{employee_name}'.\n\nUse /list_employees to see all registered employees.")
+            await update.message.reply_text(f"❌ *No employee found with name '{employee_name}'.*\n\nUse /list_employees to see all registered employees.", parse_mode=ParseMode.MARKDOWN)
             return
         
-        # Get tasks assigned to this employee
-        tasks = db.get_employee_tasks(employee_id)
+        # Get tasks assigned to this employee directly from MongoDB
+        tasks = list(db.tasks.find({"assigned_to": {"$in": [employee_id, str(employee_id)]}})) 
         
         if not tasks:
-            await update.message.reply_text(f"📋 {employee_name} has no tasks assigned.")
+            await update.message.reply_text(f"📋 *{employee_name} has no tasks assigned.*", parse_mode=ParseMode.MARKDOWN)
             return
         
         # Group tasks by status
-        active_tasks = [t for t in tasks if t['status'] == 'active']
-        completed_tasks = [t for t in tasks if t['status'] == 'completed']
+        active_tasks = [t for t in tasks if t.get('status') != 'completed' and t.get('completed', False) != True]
+        completed_tasks = [t for t in tasks if t.get('status') == 'completed' or t.get('completed', False) == True]
         
         # Display active tasks
         if active_tasks:
-            message = f"📋 Active Tasks for {employee_name}:\n\n"
+            message = f"📋 *Active Tasks for {employee_name}*\n\n"
             for task in active_tasks:
                 task_id = task['task_id']
                 message += (
-                    f"Task #{task_id}:\n"
-                    f"• Description: {task['task']}\n"
-                    f"• Time allocated: {task.get('reminder_interval', 'Not specified')} minutes\n\n"
+                    f"*Task #{task_id}*\n"
+                    f"• *Description:* {task['task']}\n"
+                    f"• *Time allocated:* {task.get('reminder_interval', 'Not specified')} minutes\n\n"
                 )
-            await update.message.reply_text(message)
+            await update.message.reply_text(message, parse_mode=ParseMode.MARKDOWN)
         else:
-            await update.message.reply_text(f"📋 {employee_name} has no active tasks.")
+            await update.message.reply_text(f"📋 *{employee_name} has no active tasks.*", parse_mode=ParseMode.MARKDOWN)
         
         # Display completed tasks (last 5)
         if completed_tasks:
             # Sort by completion time (newest first) and take last 5
             completed_tasks.sort(key=lambda x: x.get('completed_at', datetime.min), reverse=True)
             recent_completed = completed_tasks[:5]
-            message = f"📋 Recently Completed Tasks for {employee_name}:\n\n"
+            message = f"📋 *Recently Completed Tasks for {employee_name}*\n\n"
             for task in recent_completed:
                 task_id = task['task_id']
                 message += (
-                    f"✅ Task #{task_id}:\n"
-                    f"• Description: {task['task']}\n"
-                    f"• Completed: {task.get('completed_at', datetime.now()).strftime('%I:%M %p')} (UAE)\n\n"
+                    f"✅ *Task #{task_id}*\n"
+                    f"• *Description:* {task['task']}\n"
+                    f"• *Completed:* {task.get('completed_at', datetime.now()).strftime('%I:%M %p')} (UAE)\n\n"
                 )
-            await update.message.reply_text(message)
+            await update.message.reply_text(message, parse_mode=ParseMode.MARKDOWN)
     except Exception as e:
         logger.error(f"Error in task_command: {e}")
-        await update.message.reply_text("❌ An error occurred while fetching tasks.")
+        await update.message.reply_text("❌ *An error occurred while fetching tasks.*", parse_mode=ParseMode.MARKDOWN)
 
 async def inquire_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /inquire command for employees to ask questions about tasks"""
@@ -2430,16 +2431,30 @@ async def main() -> None:
             # Register commands with BotFather
             logger.info("Registering commands with BotFather...")
             from telegram import BotCommand
-            commands = [
-                BotCommand("start", "Start the bot and show main menu"),
-                BotCommand("help", "Show help information"),
-                BotCommand("assign", "Assign tasks to employees"),
-                BotCommand("tasks", "View and manage tasks"),
-                BotCommand("list_employees", "List all employees"),
-                BotCommand("add_employee", "Add a new employee"),
-                BotCommand("remove_employee", "Remove an employee")
-            ]
-            await application.bot.set_my_commands(commands)
+            from telegram.bot_command.bot_command_scope import BotCommandScopeChat
+            # Different commands for admin and regular users
+            if chat_id == YOUR_ID:
+                # Admin commands
+                commands = [
+                    BotCommand("start", "Start the bot and show main menu"),
+                    BotCommand("help", "Show help information"),
+                    BotCommand("assign", "Assign tasks to employees"),
+                    BotCommand("tasks", "View and manage tasks"),
+                    BotCommand("list_employees", "List all employees"),
+                    BotCommand("add_employee", "Add a new employee"),
+                    BotCommand("remove_employee", "Remove an employee")
+                ]
+                await application.bot.set_my_commands(commands)
+            else:
+                # Employee commands - only essential ones
+                commands = [
+                    BotCommand("start", "Start the bot and show main menu"),
+                    BotCommand("help", "Show help information"),
+                    BotCommand("tasks", "View your tasks"),
+                    BotCommand("notify", "Send message to admin")
+                ]
+                # Set commands for this specific user
+                await application.bot.set_my_commands(commands, scope=BotCommandScopeChat(chat_id))
             
             # Verify webhook setup
             webhook_info = await application.bot.get_webhook_info()

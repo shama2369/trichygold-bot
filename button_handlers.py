@@ -220,22 +220,42 @@ async def process_button_callback(query, bot):
                     return
                 
                 if update_result.modified_count > 0:
-                    # Notify admin about task completion
+                    # Format completion message with consistent styling
+                    completion_message = (
+                        f"✅ *Task Completed*\n\n"
+                        f"Task *#{task_id}*: {task.get('task', 'Unknown task')}\n"
+                        f"Completed by: {completer_name}\n"
+                        f"Time: {datetime.now().strftime('%I:%M %p')}"
+                    )
+                    
+                    # Notify admin about task completion (if completed by employee)
                     import os
                     admin_id = os.getenv('ADMIN_ID', '1341853859')
                     
-                    # Send notification to admin with proper formatting
-                    await bot.send_message(
-                        chat_id=admin_id,
-                        text=f"✅ Task Completed\n\n"
-                             f"Task #{task_id}: {task.get('task', 'Unknown task')}\n"
-                             f"Completed by: {completer_name}\n"
-                             f"Time: {datetime.now().strftime('%I:%M %p')}",
-                        parse_mode=ParseMode.MARKDOWN
-                    )
+                    if chat_id != admin_id:
+                        # Send notification to admin with proper formatting
+                        await bot.send_message(
+                            chat_id=admin_id,
+                            text=completion_message,
+                            parse_mode=ParseMode.MARKDOWN
+                        )
+                    else:
+                        # Admin completed the task - notify assigned employees
+                        assigned_to = task.get('assigned_to', [])
+                        for employee_id in assigned_to:
+                            if str(employee_id) != admin_id:  # Don't notify admin again
+                                try:
+                                    await bot.send_message(
+                                        chat_id=employee_id,
+                                        text=completion_message,
+                                        parse_mode=ParseMode.MARKDOWN
+                                    )
+                                    logger.info(f"Sent task completion notification to employee {employee_id}")
+                                except Exception as e:
+                                    logger.error(f"Failed to notify employee {employee_id}: {e}")
                     
-                    # Confirm to employee with consistent styling
-                    await query.message.reply_text(f"✅ Task #{task_id} marked as complete!")
+                    # Confirm to user with consistent styling
+                    await query.message.reply_text(f"✅ *Task #{task_id} marked as complete!*", parse_mode=ParseMode.MARKDOWN)
                     
                     # Show updated task list
                     active_tasks = list(db.tasks.find({"status": {"$ne": "completed"}, "completed": {"$ne": True}}))
