@@ -574,13 +574,18 @@ async def send_active_tasks(chat_id, context):
                 
                 task_desc = task.get('task', 'No description')
                 
-                # Format the task information
+                # Format the task information with safe access to fields
                 task_message = (
                     f"*Task #{task_id}*\n"
                     f"• *Description:* {task_desc}\n"
-                    f"• *Assigned to:* {', '.join(assignees)}\n"
-                    f"• *Time allocated:* {task.get('reminder_interval', 'Not specified')} minutes\n"
                 )
+                
+                # Only add assignees if we have any
+                if assignees:
+                    task_message += f"• *Assigned to:* {', '.join(assignees)}\n"
+                
+                # Add time allocation
+                task_message += f"• *Time allocated:* {task.get('reminder_interval', 'Not specified')} minutes\n"
                 
                 # Create buttons for task actions
                 keyboard = [
@@ -607,10 +612,14 @@ async def send_active_tasks(chat_id, context):
             # Send each employee task as a separate message with buttons
             for task in employee_tasks:
                 task_id = task['task_id']
+                # Safely access task fields with defaults
+                task_desc = task.get('task', 'No description')
+                time_allocated = task.get('reminder_interval', 'Not specified')
+                
                 task_message = (
                     f"*Task #{task_id}*\n"
-                    f"• *Description:* {task.get('task', 'No description')}\n"
-                    f"• *Time allocated:* {task.get('reminder_interval', 'Not specified')} minutes\n"
+                    f"• *Description:* {task_desc}\n"
+                    f"• *Time allocated:* {time_allocated} minutes\n"
                 )
                 # Add buttons for employee actions
                 keyboard = [
@@ -2447,7 +2456,12 @@ async def main() -> None:
             # Register commands with BotFather
             logger.info("Registering commands with BotFather...")
             from telegram import BotCommand
-            from telegram.constants import BotCommandScopeChat
+            # Fix for BotCommandScopeChat import
+            try:
+                from telegram.constants import BotCommandScopeChat
+            except ImportError:
+                # Fallback for older python-telegram-bot versions
+                from telegram import BotCommandScopeChat
             # First set default commands for all users (only employee commands)
             employee_commands = [
                 BotCommand("start", "Start the bot and show main menu"),
