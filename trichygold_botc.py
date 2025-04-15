@@ -551,12 +551,12 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def send_active_tasks(chat_id, context):
     """Helper function to send active tasks with buttons"""
     try:
-        # Get active tasks exclusively from MongoDB
-        active_tasks = db.get_active_tasks()
+        # Get active tasks directly from MongoDB collection
+        active_tasks = list(db.tasks.find({"status": {"$ne": "completed"}, "completed": {"$ne": True}}))
         logger.info(f"Using MongoDB: {len(active_tasks)} active tasks found")
         
         if not active_tasks:
-            await context.bot.send_message(chat_id=chat_id, text="📝 No active tasks at the moment.")
+            await context.bot.send_message(chat_id=chat_id, text="📝 *No active tasks at the moment.*", parse_mode=ParseMode.MARKDOWN)
             return
             
         # Format tasks based on user role
@@ -564,15 +564,22 @@ async def send_active_tasks(chat_id, context):
             # Create a button for each task for the admin
             for task in active_tasks:
                 task_id = task['task_id']
-                assignees = task['employees']
-                task_desc = task['task']
+                # Get assigned employee names
+                assigned_ids = task.get('assigned_to', [])
+                assignees = []
+                for emp_id in assigned_ids:
+                    emp = db.employees.find_one({"chat_id": str(emp_id)})
+                    if emp and emp.get('name'):
+                        assignees.append(emp.get('name'))
+                
+                task_desc = task.get('task', 'No description')
                 
                 # Format the task information
                 task_message = (
-                    f"Task #{task_id}:\n"
-                    f"• Description: {task_desc}\n"
-                    f"• Assigned to: {', '.join(assignees)}\n"
-                    f"• Time allocated: {task.get('reminder_interval', 'Not specified')} minutes\n"
+                    f"*Task #{task_id}*\n"
+                    f"• *Description:* {task_desc}\n"
+                    f"• *Assigned to:* {', '.join(assignees)}\n"
+                    f"• *Time allocated:* {task.get('reminder_interval', 'Not specified')} minutes\n"
                 )
                 
                 # Create buttons for task actions
@@ -583,27 +590,27 @@ async def send_active_tasks(chat_id, context):
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 
                 # Send each task as a separate message with buttons
-                await context.bot.send_message(chat_id=chat_id, text=task_message, reply_markup=reply_markup)
+                await context.bot.send_message(chat_id=chat_id, text=task_message, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
         else:  # Employee view
             employee_name = get_employee_name(str(chat_id))
             if not employee_name:
-                await context.bot.send_message(chat_id=chat_id, text="❌ You are not registered as an employee.")
+                await context.bot.send_message(chat_id=chat_id, text="❌ *You are not registered as an employee.*", parse_mode=ParseMode.MARKDOWN)
                 return
                 
             # Filter tasks for this employee
-            employee_tasks = [task for task in active_tasks if employee_name in task['employees']]
+            employee_tasks = [task for task in active_tasks if str(chat_id) in [str(cid) for cid in task.get('assigned_to', [])]]
             
             if not employee_tasks:
-                await context.bot.send_message(chat_id=chat_id, text="📝 You have no active tasks at the moment.")
+                await context.bot.send_message(chat_id=chat_id, text="📝 *You have no active tasks at the moment.*", parse_mode=ParseMode.MARKDOWN)
                 return
                 
             # Send each employee task as a separate message with buttons
             for task in employee_tasks:
                 task_id = task['task_id']
                 task_message = (
-                    f"Task #{task_id}:\n"
-                    f"• Description: {task['task']}\n"
-                    f"• Time allocated: {task.get('reminder_interval', 'Not specified')} minutes\n"
+                    f"*Task #{task_id}*\n"
+                    f"• *Description:* {task.get('task', 'No description')}\n"
+                    f"• *Time allocated:* {task.get('reminder_interval', 'Not specified')} minutes\n"
                 )
                 # Add buttons for employee actions
                 keyboard = [
@@ -611,10 +618,10 @@ async def send_active_tasks(chat_id, context):
                      InlineKeyboardButton("❓ Ask Question", callback_data=f"inquire_{task_id}")]
                 ]
                 reply_markup = InlineKeyboardMarkup(keyboard)
-                await context.bot.send_message(chat_id=chat_id, text=task_message, reply_markup=reply_markup)
+                await context.bot.send_message(chat_id=chat_id, text=task_message, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
     except Exception as e:
         logger.error(f"Error in send_active_tasks: {e}")
-        await context.bot.send_message(chat_id=chat_id, text="❌ An error occurred while fetching tasks.")
+        await context.bot.send_message(chat_id=chat_id, text="❌ *An error occurred while fetching tasks.*", parse_mode=ParseMode.MARKDOWN)
 
 async def tasks_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Unified command to handle viewing and completing tasks for both admin and employees"""
@@ -1516,7 +1523,16 @@ async def task_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         
         # Get tasks assigned to this employee directly from MongoDB
-        tasks = list(db.tasks.find({"assigned_to": {"$in": [employee_id, str(employee_id)]}})) 
+        # Use a more comprehensive query to find tasks assigned to this employee
+        tasks = list(db.tasks.find({
+            "$or": [
+                {"assigned_to": {"$in": [employee_id, str(employee_id)]}},
+                {"employees": {"$in": [employee_name]}}
+            ]
+        }))
+        
+        # Log task details for debugging
+        logger.info(f"Found {len(tasks)} tasks for employee {employee_name} (ID: {employee_id})")
         
         if not tasks:
             await update.message.reply_text(f"📋 *{employee_name} has no tasks assigned.*", parse_mode=ParseMode.MARKDOWN)

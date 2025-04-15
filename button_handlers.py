@@ -241,13 +241,41 @@ async def process_button_callback(query, bot):
                         )
                     else:
                         # Admin completed the task - notify assigned employees
+                        # Check both assigned_to and employees fields for backward compatibility
                         assigned_to = task.get('assigned_to', [])
+                        employee_names = task.get('employees', [])
+                        
+                        # Convert all IDs to strings for consistent comparison
+                        assigned_to = [str(emp_id) for emp_id in assigned_to]
+                        
+                        # If we have employee names but no IDs, try to find their IDs
+                        if employee_names and not assigned_to:
+                            for emp_name in employee_names:
+                                emp = db.employees.find_one({"name": emp_name})
+                                if emp and emp.get('chat_id'):
+                                    assigned_to.append(str(emp.get('chat_id')))
+                        
+                        # Log notification details
+                        logger.info(f"Notifying employees for task {task_id}: {assigned_to}")
+                        
+                        # Send notifications to all assigned employees
                         for employee_id in assigned_to:
                             if str(employee_id) != admin_id:  # Don't notify admin again
                                 try:
+                                    # Create a personalized notification message
+                                    emp = db.employees.find_one({"chat_id": str(employee_id)})
+                                    emp_name = emp.get('name', 'Employee') if emp else 'Employee'
+                                    
+                                    personalized_message = (
+                                        f"✅ *Task Completed*\n\n"
+                                        f"Hi {emp_name}, your task has been completed by Admin:\n\n"
+                                        f"Task *#{task_id}*: {task.get('task', 'Unknown task')}\n"
+                                        f"Completed at: {datetime.now().strftime('%I:%M %p')}"
+                                    )
+                                    
                                     await bot.send_message(
                                         chat_id=employee_id,
-                                        text=completion_message,
+                                        text=personalized_message,
                                         parse_mode=ParseMode.MARKDOWN
                                     )
                                     logger.info(f"Sent task completion notification to employee {employee_id}")
