@@ -587,6 +587,24 @@ async def send_active_tasks(chat_id, context):
                 # Add time allocation
                 task_message += f"• *Time allocated:* {task.get('reminder_interval', 'Not specified')} minutes\n"
                 
+                # Add assigned date/time if available
+                assigned_at = task.get('assigned_at')
+                if assigned_at:
+                    # Format the datetime
+                    formatted_date = assigned_at.strftime('%Y-%m-%d %H:%M')
+                    task_message += f"• *Assigned at:* {formatted_date}\n"
+                
+                # Add due date if available
+                due_date = task.get('due_date')
+                if due_date:
+                    task_message += f"• *Due:* {due_date}\n"
+                    
+                # Add priority if available
+                priority = task.get('priority')
+                if priority:
+                    priority_icon = "🔴" if priority.lower() == "high" else "🟡" if priority.lower() == "medium" else "🟢"
+                    task_message += f"• *Priority:* {priority_icon} {priority}\n"
+                
                 # Create buttons for task actions
                 keyboard = [
                     [InlineKeyboardButton("✅ Mark as Done", callback_data=f"taskdone_{task_id}"),
@@ -635,6 +653,13 @@ async def send_active_tasks(chat_id, context):
                     f"• *Description:* {task_desc}\n"
                     f"• *Time allocated:* {time_allocated} minutes\n"
                 )
+                
+                # Add assigned date/time if available
+                assigned_at = task.get('assigned_at')
+                if assigned_at:
+                    # Format the datetime
+                    formatted_date = assigned_at.strftime('%Y-%m-%d %H:%M')
+                    task_message += f"• *Assigned at:* {formatted_date}\n"
                 
                 # Add due date if available
                 due_date = task.get('due_date')
