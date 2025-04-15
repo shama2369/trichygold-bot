@@ -525,36 +525,25 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.message.chat_id)
     
     if chat_id == YOUR_ID:
+        # Admin help text - consistent with button help
         help_text = (
-            "🔑 *Admin Commands*\n\n"
-            "/assign \- Assign tasks to employees\n"
-            "Format: /assign employee1,employee2 task \[time\]\n\n"
-            "/tasks \- View and manage all active tasks\n"
-            "Format: /tasks \[task\_id\]\n\n"
-            "/clarify \- Add details to tasks\n"
-            "Format: /clarify task\_id details\n\n"
-            "/broadcast \- Send message to all employees\n"
-            "Format: /broadcast message\n\n"
-            "/list\_employees \- View all registered employees\n\n"
-            "/task \- View tasks assigned to a specific employee\n"
-            "Format: /task employee\_name\n\n"
-            "/help \- Show this message\n\n"
-            "*Legacy Commands* \(use /tasks instead\):\n"
-            "/done \- Same as /tasks\n"
+            "📐 *TrichyGold Task Manager Help*\n\n"
+            "*Admin Commands:*\n"
+            "`/assign` - Assign tasks to employees\n"
+            "`/tasks` - View and manage all tasks\n"
+            "`/clarify` - Add details to a task\n"
+            "`/broadcast` - Send message to all employees\n"
+            "`/list_employees` - View all employees\n"
+            "`/add_employee` - Add a new employee\n"
+            "`/remove_employee` - Remove an employee\n"
         )
     else:
+        # Employee help text - consistent with button help
         help_text = (
-            "👤 *Employee Commands*\n\n"
-            "/tasks \- View your tasks and mark them as completed\n"
-            "Format: /tasks \[task\_id\]\n\n"
-            "/inquire \- Ask questions about tasks\n"
-            "Format: /inquire task\_id question\n\n"
-            "/notify \- Send notice to admin\n"
-            "Format: /notify message\n\n"
-            "/help \- Show this message\n\n"
-            "*Legacy Commands* \(use /tasks instead\):\n"
-            "/taskdone \- Same as /tasks\n"
-            "/mytasks \- Same as /tasks\n"
+            "📋 Employee Commands\n\n"
+            "`/tasks` - View your tasks and mark them as completed\n"
+            "`/notify` - Send message to admin\n\n"
+            "You can also use the buttons in the main menu to access these features."
         )
     
     await update.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN)
@@ -654,10 +643,10 @@ async def tasks_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             # Employee sees only their tasks
             # Get active tasks from database
-            active_tasks = db.get_active_tasks()
+            active_tasks = list(db.tasks.find({"status": {"$ne": "completed"}, "completed": {"$ne": True}}))
             
             # Filter tasks for this employee
-            employee_tasks = [task for task in active_tasks if employee_name in task.get('employees', [])]
+            employee_tasks = [task for task in active_tasks if str(chat_id) in [str(cid) for cid in task.get('assigned_to', [])]]
             
             if not employee_tasks:
                 await update.message.reply_text("📝 You have no active tasks at the moment.")
@@ -801,8 +790,8 @@ async def list_employees_command(update: Update, context: ContextTypes.DEFAULT_T
         # Ensure default employees are in MongoDB
         initialize_employees_in_mongodb()
         
-        # Get employees from MongoDB
-        employees = db.get_employees()
+        # Get employees directly from MongoDB collection
+        employees = list(db.employees.find())
         
         if not employees or len(employees) == 0:
             await update.message.reply_text(
@@ -826,11 +815,11 @@ async def list_employees_command(update: Update, context: ContextTypes.DEFAULT_T
                 
             logger.info(f"Getting tasks for employee: {name} (ID: {emp_id})")
             
-            # Get tasks for this employee from MongoDB
-            tasks = db.get_employee_tasks(emp_id)
+            # Get tasks for this employee directly from MongoDB collection
+            tasks = list(db.tasks.find({"assigned_to": {"$in": [emp_id, str(emp_id)]}})) 
             
             # Count active and total tasks
-            active_tasks = sum(1 for task in tasks if task.get('status') != 'completed')
+            active_tasks = sum(1 for task in tasks if task.get('status') != 'completed' and task.get('completed', False) != True)
             total_tasks = len(tasks)
             
             employee_list.append(f"👤 {name}\n   📱 ID: {emp_id}\n   📋 Tasks: {active_tasks} active, {total_tasks} total")
@@ -849,8 +838,10 @@ async def list_employees_command(update: Update, context: ContextTypes.DEFAULT_T
         
         # Create keyboard with buttons for add/remove options
         keyboard = [
-            [InlineKeyboardButton("➕ Add Employee", callback_data="add_employee")],
-            [InlineKeyboardButton("❌ Remove Employee", callback_data="remove_employee_prompt")]
+            [
+                InlineKeyboardButton("➕ Add Employee", callback_data="add_employee_info"),
+                InlineKeyboardButton("❌ Remove Employee", callback_data="remove_employee_info")
+            ]
         ]
         
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -2446,9 +2437,7 @@ async def main() -> None:
                 BotCommand("tasks", "View and manage tasks"),
                 BotCommand("list_employees", "List all employees"),
                 BotCommand("add_employee", "Add a new employee"),
-                BotCommand("remove_employee", "Remove an employee"),
-                BotCommand("dbstatus", "Check database connection status"),
-                BotCommand("add_test_employees", "Add test employees to database")
+                BotCommand("remove_employee", "Remove an employee")
             ]
             await application.bot.set_my_commands(commands)
             
