@@ -2536,7 +2536,8 @@ async def main() -> None:
                 BotCommand("start", "Start the bot and show main menu"),
                 BotCommand("help", "Show help information"),
                 BotCommand("assign", "Assign tasks to employees"),
-                BotCommand("tasks", "View and manage tasks"),
+                BotCommand("tasks", "View and manage all tasks"),
+                BotCommand("task", "View tasks for specific employee"),
                 BotCommand("list_employees", "List all employees"),
                 BotCommand("add_employee", "Add a new employee"),
                 BotCommand("remove_employee", "Remove an employee")

@@ -55,6 +55,7 @@ async def process_button_callback(query, bot):
                     "*Admin Commands:*\n"
                     "`/assign` - Assign tasks to employees\n"
                     "`/tasks` - View and manage all tasks\n"
+                    "`/task` - View tasks for specific employee\n"
                     "`/clarify` - Add details to a task\n"
                     "`/broadcast` - Send message to all employees\n"
                     "`/list_employees` - View all employees\n"
