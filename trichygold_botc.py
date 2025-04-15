@@ -629,11 +629,23 @@ async def send_active_tasks(chat_id, context):
                 task_desc = task.get('task', 'No description')
                 time_allocated = task.get('reminder_interval', 'Not specified')
                 
+                # Format the task information with enhanced styling to match admin view
                 task_message = (
-                    f"*Task #{task_id}*\n"
+                    f"📋 *Task #{task_id}*\n\n"
                     f"• *Description:* {task_desc}\n"
                     f"• *Time allocated:* {time_allocated} minutes\n"
                 )
+                
+                # Add due date if available
+                due_date = task.get('due_date')
+                if due_date:
+                    task_message += f"• *Due:* {due_date}\n"
+                    
+                # Add priority if available
+                priority = task.get('priority')
+                if priority:
+                    priority_icon = "🔴" if priority.lower() == "high" else "🟡" if priority.lower() == "medium" else "🟢"
+                    task_message += f"• *Priority:* {priority_icon} {priority}\n"
                 # Add buttons for employee actions
                 keyboard = [
                     [InlineKeyboardButton("✅ Mark as Done", callback_data=f"taskdone_{task_id}"),
@@ -702,11 +714,31 @@ async def tasks_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 task_desc = task['task']
                 created_at = task.get('created_at', datetime.now()).strftime('%I:%M %p')
                 
+                # Enhanced styling for employee task view
                 task_message = (
-                    f"*Task #{task_id}*\n"
+                    f"📋 *Task #{task_id}*\n\n"
                     f"• *Description:* {task_desc}\n"
-                    f"• *Created:* {created_at} (UAE)\n\n"
+                    f"• *Created:* {created_at} (UAE)\n"
                 )
+                
+                # Add time allocation if available
+                time_allocated = task.get('reminder_interval')
+                if time_allocated:
+                    task_message += f"• *Time allocated:* {time_allocated} minutes\n"
+                    
+                # Add due date if available
+                due_date = task.get('due_date')
+                if due_date:
+                    task_message += f"• *Due:* {due_date}\n"
+                    
+                # Add priority if available
+                priority = task.get('priority')
+                if priority:
+                    priority_icon = "🔴" if priority.lower() == "high" else "🟡" if priority.lower() == "medium" else "🟢"
+                    task_message += f"• *Priority:* {priority_icon} {priority}\n"
+                
+                # Add spacing before buttons
+                task_message += "\n"
                 
                 # Add action buttons for each task
                 keyboard = [

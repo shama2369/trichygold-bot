@@ -62,12 +62,16 @@ async def process_button_callback(query, bot):
                     "`/remove_employee` - Remove an employee\n"
                 )
             else:
-                # Employee help text - removed /mytasks as requested
+                # Enhanced employee help text with improved styling
                 help_text = (
-                    "📋 Employee Commands\n\n"
+                    "📐 *TrichyGold Task Manager Help*\n\n"
+                    "*Employee Commands:*\n"
                     "`/tasks` - View your tasks and mark them as completed\n"
                     "`/notify` - Send message to admin\n\n"
-                    "You can also use the buttons in the main menu to access these features."
+                    "*Quick Actions:*\n"
+                    "• Use the buttons in the main menu for quick access\n"
+                    "• Mark tasks as complete when you finish them\n"
+                    "• Ask questions about specific tasks if needed\n"
                 )
             await query.message.reply_text(help_text, parse_mode="Markdown")
             
