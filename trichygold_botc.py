@@ -2431,7 +2431,7 @@ async def main() -> None:
             # Register commands with BotFather
             logger.info("Registering commands with BotFather...")
             from telegram import BotCommand
-            from telegram.bot_command.bot_command_scope import BotCommandScopeChat
+            from telegram.constants import BotCommandScopeChat
             # Different commands for admin and regular users
             if chat_id == YOUR_ID:
                 # Admin commands
