@@ -602,8 +602,21 @@ async def send_active_tasks(chat_id, context):
                 await context.bot.send_message(chat_id=chat_id, text="❌ *You are not registered as an employee.*", parse_mode=ParseMode.MARKDOWN)
                 return
                 
-            # Filter tasks for this employee
-            employee_tasks = [task for task in active_tasks if str(chat_id) in [str(cid) for cid in task.get('assigned_to', [])]]
+            # Filter tasks for this employee - check both assigned_to and employees fields
+            employee_tasks = []
+            for task in active_tasks:
+                # Check assigned_to field (contains chat_ids)
+                assigned_to = task.get('assigned_to', [])
+                # Convert all values to strings for comparison
+                assigned_to_str = [str(cid) for cid in assigned_to] if isinstance(assigned_to, list) else []
+                
+                # Check employees field (contains names)
+                employees = task.get('employees', [])
+                employees_list = employees if isinstance(employees, list) else []
+                
+                # Add task if either the chat_id is in assigned_to or employee name is in employees
+                if str(chat_id) in assigned_to_str or employee_name in employees_list:
+                    employee_tasks.append(task)
             
             if not employee_tasks:
                 await context.bot.send_message(chat_id=chat_id, text="📝 *You have no active tasks at the moment.*", parse_mode=ParseMode.MARKDOWN)
@@ -661,8 +674,21 @@ async def tasks_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Get active tasks from database
             active_tasks = list(db.tasks.find({"status": {"$ne": "completed"}, "completed": {"$ne": True}}))
             
-            # Filter tasks for this employee
-            employee_tasks = [task for task in active_tasks if str(chat_id) in [str(cid) for cid in task.get('assigned_to', [])]]
+            # Filter tasks for this employee - check both assigned_to and employees fields
+            employee_tasks = []
+            for task in active_tasks:
+                # Check assigned_to field (contains chat_ids)
+                assigned_to = task.get('assigned_to', [])
+                # Convert all values to strings for comparison
+                assigned_to_str = [str(cid) for cid in assigned_to] if isinstance(assigned_to, list) else []
+                
+                # Check employees field (contains names)
+                employees = task.get('employees', [])
+                employees_list = employees if isinstance(employees, list) else []
+                
+                # Add task if either the chat_id is in assigned_to or employee name is in employees
+                if str(chat_id) in assigned_to_str or employee_name in employees_list:
+                    employee_tasks.append(task)
             
             if not employee_tasks:
                 await update.message.reply_text("📝 *You have no active tasks at the moment.*", parse_mode=ParseMode.MARKDOWN)
@@ -2473,19 +2499,23 @@ async def main() -> None:
             await application.bot.set_my_commands(employee_commands)
             
             # Then set admin-specific commands just for the admin user
-            if chat_id == YOUR_ID:
-                admin_commands = [
-                    BotCommand("start", "Start the bot and show main menu"),
-                    BotCommand("help", "Show help information"),
-                    BotCommand("assign", "Assign tasks to employees"),
-                    BotCommand("tasks", "View and manage tasks"),
-                    BotCommand("list_employees", "List all employees"),
-                    BotCommand("add_employee", "Add a new employee"),
-                    BotCommand("remove_employee", "Remove an employee")
-                ]
-                # Override commands just for the admin
+            # Use YOUR_ID directly instead of comparing with chat_id which isn't defined here
+            admin_commands = [
+                BotCommand("start", "Start the bot and show main menu"),
+                BotCommand("help", "Show help information"),
+                BotCommand("assign", "Assign tasks to employees"),
+                BotCommand("tasks", "View and manage tasks"),
+                BotCommand("list_employees", "List all employees"),
+                BotCommand("add_employee", "Add a new employee"),
+                BotCommand("remove_employee", "Remove an employee")
+            ]
+            # Override commands just for the admin
+            try:
                 from telegram.constants import BotCommandScopeChat
-                await application.bot.set_my_commands(admin_commands, scope=BotCommandScopeChat(YOUR_ID))
+            except ImportError:
+                # Fallback for older python-telegram-bot versions
+                from telegram import BotCommandScopeChat
+            await application.bot.set_my_commands(admin_commands, scope=BotCommandScopeChat(YOUR_ID))
             
             # Verify webhook setup
             webhook_info = await application.bot.get_webhook_info()

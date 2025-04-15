@@ -163,7 +163,7 @@ async def process_button_callback(query, bot):
         elif data == 'cmd_clarify':
             await query.message.reply_text(
                 "💬 *Task Clarification*\n\n"
-                "Use /clarify <task_id> <details>\n\n"
+                "Use /clarify <task\_id> <details>\n\n"
                 "Example: /clarify 1 Please check the back storage area first",
                 parse_mode="Markdown"
             )
