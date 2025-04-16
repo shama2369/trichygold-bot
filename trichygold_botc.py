@@ -244,8 +244,8 @@ def get_employee_name(chat_id):
         logger.error(f"Error getting employee name: {e}")
         return None
 
-def format_task_message(task, minutes):
-    """Format a task message with proper time display"""
+def format_task_message(task, minutes, priority=None, due_date=None):
+    """Format a task message with proper time display, priority, and due date"""
     # Format reminder interval in a user-friendly way
     if minutes < 60:
         reminder_text = f"Every {minutes} minutes"
@@ -262,10 +262,23 @@ def format_task_message(task, minutes):
         else:
             reminder_text = f"Every {int(days)} days"
     
+    # Create priority icon if priority is specified
+    priority_text = ""
+    if priority:
+        priority_icon = "🔴" if priority.lower() == "high" else "🟡" if priority.lower() == "medium" else "🟢"
+        priority_text = f"*Priority:* {priority_icon} {priority.capitalize()}\n"
+    
+    # Add due date if specified
+    due_date_text = ""
+    if due_date:
+        due_date_text = f"*Due Date:* {due_date}\n"
+    
     # Format the message with Markdown
     return (
         f"📋 *New Task Assigned!*\n\n"
         f"*Task:* {task}\n"
+        f"{priority_text}"
+        f"{due_date_text}"
         f"*Reminder:* {reminder_text}\n\n"
         f"Please respond with:\n"
         f"• Text updates\n"
@@ -501,8 +514,8 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for i, emp_name in enumerate(employee_names):
             emp_chat_id = employee_chat_ids[i]
             try:
-                # Format the task message
-                task_message = format_task_message(task, minutes)
+                # Format the task message with priority and due date
+                task_message = format_task_message(task, minutes, priority, due_date)
                 
                 # Create keyboard with done button
                 keyboard = [
@@ -545,10 +558,23 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         admin_reply_markup = InlineKeyboardMarkup(admin_keyboard)
         
+        # Format priority text for admin confirmation
+        priority_text = ""
+        if priority:
+            priority_icon = "🔴" if priority.lower() == "high" else "🟡" if priority.lower() == "medium" else "🟢"
+            priority_text = f"Priority: {priority_icon} {priority.capitalize()}\n"
+        
+        # Format due date text for admin confirmation
+        due_date_text = ""
+        if due_date:
+            due_date_text = f"Due Date: {due_date}\n"
+        
         # Send confirmation to admin
         await update.message.reply_text(
             f"✅ Task #{task_id} assigned to: {', '.join(employee_names)}\n"
             f"Task: {task}\n"
+            f"{priority_text}"
+            f"{due_date_text}"
             f"Reminders: {reminder_text}",
             reply_markup=admin_reply_markup,
             parse_mode=ParseMode.MARKDOWN
