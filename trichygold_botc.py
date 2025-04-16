@@ -363,14 +363,23 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if len(args) < 2:
             logger.warning(f"Insufficient arguments: {args}")
             await update.message.reply_text(
-                "❌ Usage: /assign employee1,employee2 <task> [time]\n\n"
+                "❌ Usage: /assign employee1,employee2 <task> [time] [p:priority] [due:date]\n\n"
                 "Time can be specified as:\n"
                 "- Minutes: 30 or 30m\n"
                 "- Hours: 2h\n"
                 "- Days: 1d\n\n"
+                "Priority can be specified as:\n"
+                "- p:high - 🔴 High priority\n"
+                "- p:medium - 🟡 Medium priority\n"
+                "- p:low - 🟢 Low priority\n\n"
+                "Due date can be specified as:\n"
+                "- due:tomorrow - Due tomorrow\n"
+                "- due:today - Due today\n"
+                "- due:nextweek - Due next week\n"
+                "- due:YYYY-MM-DD - Due on specific date\n\n"
                 "Examples:\n"
-                "/assign rehan,shameem Check inventory 30m\n"
-                "/assign rehan Daily report 1d"
+                "/assign rehan,shameem Check inventory 30m p:high due:tomorrow\n"
+                "/assign rehan Daily report 1d p:medium due:2025-04-20"
             )
             return
         
@@ -426,8 +435,45 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 minutes = int(last_part)
                 task_parts = task_parts[:-1]
                 
+        # Parse priority and due date flags
+        priority = None
+        due_date = None
+        filtered_parts = []
+        
+        for part in task_parts:
+            # Check for priority flag (p:high, p:medium, p:low)
+            if part.lower().startswith('p:'):
+                priority_value = part[2:].lower()
+                if priority_value in ['high', 'medium', 'low']:
+                    priority = priority_value
+                    continue
+            
+            # Check for due date flag (due:tomorrow, due:2025-04-20, etc.)
+            elif part.lower().startswith('due:'):
+                date_value = part[4:].lower()
+                
+                # Handle special keywords
+                if date_value == 'tomorrow':
+                    from datetime import datetime, timedelta
+                    tomorrow = datetime.now() + timedelta(days=1)
+                    due_date = tomorrow.strftime('%Y-%m-%d')
+                elif date_value == 'today':
+                    from datetime import datetime
+                    due_date = datetime.now().strftime('%Y-%m-%d')
+                elif date_value == 'nextweek':
+                    from datetime import datetime, timedelta
+                    next_week = datetime.now() + timedelta(days=7)
+                    due_date = next_week.strftime('%Y-%m-%d')
+                else:
+                    # Assume it's a date string
+                    due_date = date_value
+                continue
+            
+            # If not a special flag, keep it as part of the task description
+            filtered_parts.append(part)
+        
         # Join the remaining parts as the task description
-        task = ' '.join(task_parts)
+        task = ' '.join(filtered_parts)
         
         # Get the next task ID from the database
         highest_task = db.tasks.find_one(sort=[('task_id', -1)])
@@ -439,8 +485,11 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
             'task': task,
             'assigned_by': 'Admin',
             'assigned_to': employee_chat_ids,
+            'employees': employee_names,  # Store employee names for easier querying
             'assigned_at': datetime.now(),
             'reminder_interval': minutes,
+            'priority': priority,  # Add priority field
+            'due_date': due_date,  # Add due date field
             'status': 'active',
             'completed': False
         }
