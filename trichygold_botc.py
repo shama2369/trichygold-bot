@@ -273,19 +273,19 @@ def format_task_message(task, minutes, priority=None, due_date=None):
     if due_date:
         due_date_text = f"*Due Date:* {due_date}\n"
     
+    # Add assigned date
+    assigned_date = datetime.now().strftime('%Y-%m-%d %H:%M')
+    assigned_date_text = f"*Assigned:* {assigned_date}\n"
+    
     # Format the message with Markdown
     return (
         f"📋 *New Task Assigned!*\n\n"
         f"*Task:* {task}\n"
         f"{priority_text}"
         f"{due_date_text}"
+        f"{assigned_date_text}"
         f"*Reminder:* {reminder_text}\n\n"
-        f"Please respond with:\n"
-        f"• Text updates\n"
-        f"• Voice messages\n"
-        f"• Files/documents\n"
-        f"• Photos\n"
-        f"\nOr mark as done when completed."
+        f"Mark as done when completed."
     )
 
 def create_task_keyboard():
@@ -582,6 +582,7 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Schedule reminder
         if context.job_queue:
+            logger.info(f"Scheduling reminder for Task #{task_id} every {minutes} minutes")
             context.job_queue.run_repeating(
                 send_task_reminder,
                 interval=minutes * 60,
@@ -917,37 +918,70 @@ async def clarify_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
             
         args = context.args
-        if not args or not args[0].isdigit():
+        if len(args) < 2:
             await update.message.reply_text(
-                "❌ Usage: /clarify <task_id>\n"
-                "Then reply with text, voice, or attachments"
+                "❌ Usage: /clarify <task_id> <clarification_text>\n\n"
+                "Example: /clarify 25 Please check the inventory first"
             )
             return
             
-        task_id = int(args[0])
-        if task_id not in TASKS:
+        # Extract task ID and clarification text
+        task_id = None
+        try:
+            task_id = int(args[0])
+        except ValueError:
+            await update.message.reply_text("❌ Task ID must be a number.")
+            return
+            
+        # Get the clarification text (everything after the task ID)
+        clarification_text = " ".join(args[1:])
+        
+        # Check if task exists in MongoDB
+        task = db.tasks.find_one({"task_id": task_id})
+        if not task:
             await update.message.reply_text(f"❌ Task #{task_id} not found!")
             return
             
-        if TASKS[task_id].get('completed', False):
+        if task.get('status') == 'completed' or task.get('completed', False):
             await update.message.reply_text(f"❌ Task #{task_id} is already completed. Cannot add clarification.")
             return
             
-        # Store context for handling the next message
-        context.user_data['clarifying_task'] = task_id
+        # Add clarification to task in MongoDB
+        clarification = {
+            "text": clarification_text,
+            "timestamp": datetime.now()
+        }
         
-        await update.message.reply_text(
-            f"📝 Send your clarification for Task #{task_id}\n"
-            f"You can send:\n"
-            f"• Text message\n"
-            f"• Voice message\n"
-            f"• Files/documents\n"
-            f"• Photos"
+        # Update task with new clarification
+        result = db.tasks.update_one(
+            {"task_id": task_id},
+            {"$push": {"clarifications": clarification}}
         )
+        
+        if result.modified_count == 0:
+            await update.message.reply_text(f"❌ Failed to add clarification to Task #{task_id}.")
+            return
+        
+        # Send confirmation to admin
+        await update.message.reply_text(f"✅ Clarification added to Task #{task_id}!")
+        
+        # Notify assigned employees about the clarification
+        assigned_to = task.get('assigned_to', [])
+        for emp_chat_id in assigned_to:
+            try:
+                await context.bot.send_message(
+                    chat_id=emp_chat_id,
+                    text=f"📝 *Task Clarification*\n\n"
+                         f"*Task #{task_id}:* {task['task']}\n\n"
+                         f"*Clarification:* {clarification_text}",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+            except Exception as e:
+                logger.error(f"Failed to send clarification to employee {emp_chat_id}: {e}")
             
     except Exception as e:
         logger.error(f"Error in clarify_command: {e}")
-        await update.message.reply_text("❌ An error occurred while processing your command.")
+        await update.message.reply_text(f"❌ An error occurred: {str(e)}")
 
 async def list_employees_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /list_employees command for admin to view and manage employees"""
@@ -1662,21 +1696,126 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Only admin can use this command!")
             return
         
-        # Store context for handling the next message
-        context.user_data['broadcasting'] = True
+        # Check if message text was provided
+        args = context.args
+        if not args:
+            await update.message.reply_text(
+                "❌ Usage: /broadcast <message>\n\n"
+                "Example: /broadcast Meeting at 3pm today"
+            )
+            return
+            
+        # Get the broadcast message
+        broadcast_message = " ".join(args)
         
-        await update.message.reply_text(
-            "📢 Send your broadcast message.\n"
-            "You can send:\n"
-            "• Text message\n"
-            "• Voice message\n"
-            "• Files/Documents\n"
-            "• Photos"
-        )
+        # Get all employees from database
+        employees = list(db.employees.find())
+        if not employees:
+            await update.message.reply_text("❌ No employees found to broadcast to.")
+            return
+            
+        # Send the broadcast message to all employees
+        success_count = 0
+        fail_count = 0
+        
+        for employee in employees:
+            emp_chat_id = employee.get('chat_id')
+            try:
+                await context.bot.send_message(
+                    chat_id=emp_chat_id,
+                    text=f"📢 *Broadcast Message*\n\n{broadcast_message}",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                success_count += 1
+            except Exception as e:
+                logger.error(f"Failed to send broadcast to {emp_chat_id}: {e}")
+                fail_count += 1
+                
+        # Send confirmation to admin
+        status = f"✅ Broadcast sent to {success_count} employees"
+        if fail_count > 0:
+            status += f"\n❌ Failed to send to {fail_count} employees"
+            
+        await update.message.reply_text(status)
         
     except Exception as e:
         logger.error(f"Error in broadcast_command: {e}")
-        await update.message.reply_text("❌ An error occurred.")
+        await update.message.reply_text(f"❌ An error occurred: {str(e)}")
+
+async def send_task_reminder(context: ContextTypes.DEFAULT_TYPE):
+    """Send reminder for specific task"""
+    try:
+        job = context.job
+        task_id = job.data['task_id']
+        
+        logger.info(f"Sending reminder for Task #{task_id}")
+        
+        # Get task from database
+        task = db.tasks.find_one({"task_id": task_id})
+        
+        if not task:
+            logger.error(f"Task #{task_id} not found for reminder")
+            job.schedule_removal()
+            return
+            
+        if task.get('status') == 'completed' or task.get('completed', False):
+            logger.info(f"Task #{task_id} is already completed, removing reminder job")
+            job.schedule_removal()
+            return
+            
+        # Format reminder message
+        task_desc = task.get('task', 'No description')
+        
+        # Add priority if available
+        priority_text = ""
+        priority = task.get('priority')
+        if priority:
+            priority_icon = "🔴" if priority.lower() == "high" else "🟡" if priority.lower() == "medium" else "🟢"
+            priority_text = f"*Priority:* {priority_icon} {priority.capitalize()}\n"
+            
+        # Add due date if available
+        due_date_text = ""
+        due_date = task.get('due_date')
+        if due_date:
+            due_date_text = f"*Due Date:* {due_date}\n"
+            
+        # Create reminder message
+        reminder_message = (
+            f"⏰ *Task Reminder*\n\n"
+            f"*Task #{task_id}:* {task_desc}\n"
+            f"{priority_text}"
+            f"{due_date_text}\n"
+            f"Use the buttons below to manage this task."
+        )
+        
+        # Create keyboard with done button
+        keyboard = [
+            [InlineKeyboardButton("✅ Mark as Done", callback_data=f"taskdone_{task_id}"),
+             InlineKeyboardButton("❓ Ask Question", callback_data=f"inquire_{task_id}")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        # Send reminder to each assigned employee
+        assigned_to = task.get('assigned_to', [])
+        success_count = 0
+        
+        for emp_chat_id in assigned_to:
+            try:
+                await context.bot.send_message(
+                    chat_id=emp_chat_id,
+                    text=reminder_message,
+                    reply_markup=reply_markup,
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                success_count += 1
+            except Exception as e:
+                logger.error(f"Failed to send reminder to {emp_chat_id}: {e}")
+                
+        logger.info(f"Sent reminder for Task #{task_id} to {success_count} employees")
+        
+    except Exception as e:
+        logger.error(f"Error in send_task_reminder: {e}")
+        # Don't remove the job on error, it will retry next time
 
 async def task_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /task command to view tasks assigned to a specific employee"""
