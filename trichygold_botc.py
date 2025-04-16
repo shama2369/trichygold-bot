@@ -669,11 +669,9 @@ async def send_active_tasks(chat_id, context):
                 task_message += f"• *Time allocated:* {task.get('reminder_interval', 'Not specified')} minutes\n"
                 
                 # Add assigned date/time if available
-                assigned_at = task.get('assigned_at')
-                if assigned_at:
-                    # Format the datetime
-                    formatted_date = assigned_at.strftime('%Y-%m-%d %H:%M')
-                    task_message += f"• *Assigned at:* {formatted_date}\n"
+                assigned_date = task.get('assigned_date')
+                if assigned_date:
+                    task_message += f"• *Assigned:* {assigned_date}\n"
                 
                 # Add due date if available
                 due_date = task.get('due_date')
@@ -736,11 +734,9 @@ async def send_active_tasks(chat_id, context):
                 )
                 
                 # Add assigned date/time if available
-                assigned_at = task.get('assigned_at')
-                if assigned_at:
-                    # Format the datetime
-                    formatted_date = assigned_at.strftime('%Y-%m-%d %H:%M')
-                    task_message += f"• *Assigned at:* {formatted_date}\n"
+                assigned_date = task.get('assigned_date')
+                if assigned_date:
+                    task_message += f"• *Assigned:* {assigned_date}\n"
                 
                 # Add due date if available
                 due_date = task.get('due_date')
