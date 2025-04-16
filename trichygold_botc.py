@@ -419,13 +419,14 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Parse task and time units
         task_parts = args[1:]
         minutes = 60  # default reminder interval (60 minutes)
+        priority = None
+        due_date = None
+        filtered_parts = []
         
-        # Check if the last argument contains a time unit
-        if len(task_parts) > 0:
-            last_part = task_parts[-1].lower()
-            
+        # Scan all parts for time units, priority, and due date flags
+        for part in task_parts:
             # Check for time unit patterns like 30m, 2h, 1d
-            time_match = re.match(r'^(\d+)([mhd])$', last_part)
+            time_match = re.match(r'^(\d+)([mhd])$', part.lower())
             if time_match:
                 value, unit = time_match.groups()
                 value = int(value)
@@ -436,26 +437,19 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     minutes = value * 60
                 elif unit == 'd':  # days
                     minutes = value * 60 * 24
-                    
-                # Remove the time unit from the task description
-                task_parts = task_parts[:-1]
-            # Check if the last part is just a number (assume minutes)
-            elif last_part.isdigit():
-                minutes = int(last_part)
-                task_parts = task_parts[:-1]
+                continue  # Skip adding this to filtered_parts
                 
-        # Parse priority and due date flags
-        priority = None
-        due_date = None
-        filtered_parts = []
-        
-        for part in task_parts:
+            # Check if it's just a number (assume minutes)
+            elif part.isdigit():
+                minutes = int(part)
+                continue  # Skip adding this to filtered_parts
+                
             # Check for priority flag (p:high, p:medium, p:low)
-            if part.lower().startswith('p:'):
+            elif part.lower().startswith('p:'):
                 priority_value = part[2:].lower()
                 if priority_value in ['high', 'medium', 'low']:
                     priority = priority_value
-                    continue
+                    continue  # Skip adding this to filtered_parts
             
             # Check for due date flag (due:tomorrow, due:2025-04-20, etc.)
             elif part.lower().startswith('due:'):
@@ -473,7 +467,7 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 else:
                     # Assume it's a date string
                     due_date = date_value
-                continue
+                continue  # Skip adding this to filtered_parts
             
             # If not a special flag, keep it as part of the task description
             filtered_parts.append(part)
