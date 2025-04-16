@@ -290,21 +290,22 @@ async def process_button_callback(query, bot):
                     # Confirm to user with consistent styling
                     await query.message.reply_text(f"✅ *Task #{task_id} marked as complete!*", parse_mode=ParseMode.MARKDOWN)
                     
-                    # Show updated task list
-                    active_tasks = list(db.tasks.find({"status": {"$ne": "completed"}, "completed": {"$ne": True}}))
-                    
-                    if active_tasks:
+                    # Only show updated task list for employees, not for admin
+                    if chat_id != admin_id:  # Don't show task list for admin
+                        active_tasks = list(db.tasks.find({"status": {"$ne": "completed"}, "completed": {"$ne": True}}))
+                        
                         task_message = "📋 *Your Active Tasks*\n\n"
+                        has_tasks = False
+                        
                         for task in active_tasks:
                             if str(chat_id) in [str(cid) for cid in task.get('assigned_to', [])]:
                                 task_message += f"#{task['task_id']} - {task['task']}\n"
+                                has_tasks = True
                         
-                        if task_message != "📋 *Your Active Tasks*\n\n":
+                        if has_tasks:
                             await query.message.reply_text(task_message, parse_mode="Markdown")
                         else:
                             await query.message.reply_text("✅ You have no active tasks remaining!", parse_mode="Markdown")
-                    else:
-                        await query.message.reply_text("✅ You have no active tasks remaining!", parse_mode="Markdown")
                 else:
                     await query.message.reply_text(f"❌ Could not mark Task #{task_id} as complete.", parse_mode="Markdown")
             except Exception as e:

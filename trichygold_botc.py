@@ -244,7 +244,7 @@ def get_employee_name(chat_id):
         logger.error(f"Error getting employee name: {e}")
         return None
 
-def format_task_message(task, minutes, priority=None, due_date=None):
+def format_task_message(task, minutes, priority=None, due_date=None, assigned_date=None):
     """Format a task message with proper time display, priority, and due date"""
     # Format reminder interval in a user-friendly way
     if minutes < 60:
@@ -273,8 +273,9 @@ def format_task_message(task, minutes, priority=None, due_date=None):
     if due_date:
         due_date_text = f"*Due Date:* {due_date}\n"
     
-    # Add assigned date
-    assigned_date = datetime.now().strftime('%Y-%m-%d %H:%M')
+    # Add assigned date - use current time as fallback
+    if not assigned_date:
+        assigned_date = datetime.now().strftime('%Y-%m-%d %H:%M')
     assigned_date_text = f"*Assigned:* {assigned_date}\n"
     
     # Format the message with Markdown
@@ -492,14 +493,18 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
         highest_task = db.tasks.find_one(sort=[('task_id', -1)])
         task_id = 1 if not highest_task else highest_task['task_id'] + 1
         
-        # Store task data
+        # Create task data
+        assigned_date = datetime.now()
+        formatted_assigned_date = assigned_date.strftime('%Y-%m-%d %H:%M')
+        
         task_data = {
             'task_id': task_id,
             'task': task,
             'assigned_by': 'Admin',
             'assigned_to': employee_chat_ids,
             'employees': employee_names,  # Store employee names for easier querying
-            'assigned_at': datetime.now(),
+            'assigned_at': assigned_date,
+            'assigned_date': formatted_assigned_date,  # Store formatted date for display
             'reminder_interval': minutes,
             'priority': priority,  # Add priority field
             'due_date': due_date,  # Add due date field
@@ -514,8 +519,8 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for i, emp_name in enumerate(employee_names):
             emp_chat_id = employee_chat_ids[i]
             try:
-                # Format the task message with priority and due date
-                task_message = format_task_message(task, minutes, priority, due_date)
+                # Format the task message with priority, due date, and assigned date
+                task_message = format_task_message(task, minutes, priority, due_date, formatted_assigned_date)
                 
                 # Create keyboard with done button
                 keyboard = [
@@ -1779,12 +1784,19 @@ async def send_task_reminder(context: ContextTypes.DEFAULT_TYPE):
         if due_date:
             due_date_text = f"*Due Date:* {due_date}\n"
             
+        # Add assigned date if available
+        assigned_date_text = ""
+        assigned_date = task.get('assigned_date')
+        if assigned_date:
+            assigned_date_text = f"*Assigned:* {assigned_date}\n"
+            
         # Create reminder message
         reminder_message = (
             f"⏰ *Task Reminder*\n\n"
             f"*Task #{task_id}:* {task_desc}\n"
             f"{priority_text}"
-            f"{due_date_text}\n"
+            f"{due_date_text}"
+            f"{assigned_date_text}\n"
             f"Use the buttons below to manage this task."
         )
         
