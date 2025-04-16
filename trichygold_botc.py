@@ -349,6 +349,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /assign command for task assignment"""
+    # Import datetime at the function level to avoid scope issues
+    from datetime import datetime, timedelta
+    
     logger.info(f"assign_task called with update: {update.message.text}")
     logger.info(f"User ID: {update.message.chat_id}, Admin ID: {YOUR_ID}")
     
@@ -454,14 +457,11 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
                 # Handle special keywords
                 if date_value == 'tomorrow':
-                    from datetime import datetime, timedelta
                     tomorrow = datetime.now() + timedelta(days=1)
                     due_date = tomorrow.strftime('%Y-%m-%d')
                 elif date_value == 'today':
-                    from datetime import datetime
                     due_date = datetime.now().strftime('%Y-%m-%d')
                 elif date_value == 'nextweek':
-                    from datetime import datetime, timedelta
                     next_week = datetime.now() + timedelta(days=7)
                     due_date = next_week.strftime('%Y-%m-%d')
                 else:
