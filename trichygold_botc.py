@@ -963,7 +963,7 @@ async def clarify_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         
         # Send confirmation to admin
-        await update.message.reply_text(f"✅ Clarification added to Task #{task_id}!")
+        await update.message.reply_text(f"✅ Clarification added to Task #{task_id}!\n\n*Task:* {task['task']}\n\n*Clarification:* {clarification_text}", parse_mode=ParseMode.MARKDOWN)
         
         # Notify assigned employees about the clarification
         assigned_to = task.get('assigned_to', [])
