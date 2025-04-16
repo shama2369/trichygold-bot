@@ -696,9 +696,9 @@ async def send_active_tasks(chat_id, context):
                 task_desc = task.get('task', 'No description')
                 time_allocated = task.get('reminder_interval', 'Not specified')
                 
-                # Format the task information with enhanced styling to match admin view
+                # Format the task information with the same styling as admin view
                 task_message = (
-                    f"📋 *Task #{task_id}*\n\n"
+                    f"*Task #{task_id}*\n"
                     f"• *Description:* {task_desc}\n"
                     f"• *Time allocated:* {time_allocated} minutes\n"
                 )
