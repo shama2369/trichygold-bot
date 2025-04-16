@@ -366,23 +366,29 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if len(args) < 2:
             logger.warning(f"Insufficient arguments: {args}")
             await update.message.reply_text(
-                "❌ Usage: /assign employee1,employee2 <task> [time] [p:priority] [due:date]\n\n"
-                "Time can be specified as:\n"
-                "- Minutes: 30 or 30m\n"
-                "- Hours: 2h\n"
-                "- Days: 1d\n\n"
-                "Priority can be specified as:\n"
-                "- p:high - 🔴 High priority\n"
-                "- p:medium - 🟡 Medium priority\n"
-                "- p:low - 🟢 Low priority\n\n"
-                "Due date can be specified as:\n"
-                "- due:tomorrow - Due tomorrow\n"
-                "- due:today - Due today\n"
-                "- due:nextweek - Due next week\n"
-                "- due:YYYY-MM-DD - Due on specific date\n\n"
-                "Examples:\n"
-                "/assign rehan,shameem Check inventory 30m p:high due:tomorrow\n"
-                "/assign rehan Daily report 1d p:medium due:2025-04-20"
+                "❌ *Task Assignment Command Format*\n\n"
+                "`/assign employee1,employee2 <task> [time] [p:priority] [due:date]`\n\n"
+                "*Required Parameters:*\n"
+                "• `employee1,employee2` - Comma-separated list of employees\n"
+                "• `<task>` - Task description\n\n"
+                "*Optional Parameters:*\n\n"
+                "*Time Format:*\n"
+                "• `30m` - 30 minutes\n"
+                "• `2h` - 2 hours\n"
+                "• `1d` - 1 day\n\n"
+                "*Priority Options:*\n"
+                "• `p:high` - 🔴 High priority\n"
+                "• `p:medium` - 🟡 Medium priority\n"
+                "• `p:low` - 🟢 Low priority\n\n"
+                "*Due Date Options:*\n"
+                "• `due:today` - Due today\n"
+                "• `due:tomorrow` - Due tomorrow\n"
+                "• `due:nextweek` - Due next week\n"
+                "• `due:YYYY-MM-DD` - Due on specific date\n\n"
+                "*Examples:*\n"
+                "`/assign rehan,shameem Check inventory 30m p:high due:tomorrow`\n"
+                "`/assign rehan Daily report 1d p:medium due:2025-04-20`",
+                parse_mode=ParseMode.MARKDOWN
             )
             return
         
@@ -1341,7 +1347,31 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
             
             # Execute the appropriate command directly
             if data == 'cmd_assign':
-                await query.message.reply_text("Use /assign employee1,employee2 <task> [time]\n\nExample: /assign rehan,shameem Check inventory 30m")
+                await query.message.reply_text(
+                    "*Task Assignment Command Format*\n\n"
+                    "`/assign employee1,employee2 <task> [time] [p:priority] [due:date]`\n\n"
+                    "*Required Parameters:*\n"
+                    "• `employee1,employee2` - Comma-separated list of employees\n"
+                    "• `<task>` - Task description\n\n"
+                    "*Optional Parameters:*\n\n"
+                    "*Time Format:*\n"
+                    "• `30m` - 30 minutes\n"
+                    "• `2h` - 2 hours\n"
+                    "• `1d` - 1 day\n\n"
+                    "*Priority Options:*\n"
+                    "• `p:high` - 🔴 High priority\n"
+                    "• `p:medium` - 🟡 Medium priority\n"
+                    "• `p:low` - 🟢 Low priority\n\n"
+                    "*Due Date Options:*\n"
+                    "• `due:today` - Due today\n"
+                    "• `due:tomorrow` - Due tomorrow\n"
+                    "• `due:nextweek` - Due next week\n"
+                    "• `due:YYYY-MM-DD` - Due on specific date\n\n"
+                    "*Examples:*\n"
+                    "`/assign rehan,shameem Check inventory 30m p:high due:tomorrow`\n"
+                    "`/assign rehan Daily report 1d p:medium due:2025-04-20`",
+                    parse_mode=ParseMode.MARKDOWN
+                )
             elif data == 'cmd_done' or data == 'cmd_tasks':
                 # For commands that show task lists, execute them directly
                 chat_id = str(query.from_user.id)
