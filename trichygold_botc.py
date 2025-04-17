@@ -318,12 +318,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Create buttons for admin commands with command shortcuts
         keyboard = [
-            [InlineKeyboardButton("📝 /assign - Assign Tasks", callback_data="cmd_assign")],
-            [InlineKeyboardButton("📃 /tasks - View Tasks", callback_data="cmd_tasks")],
-            [InlineKeyboardButton("💬 /clarify - Add Details to Tasks", callback_data="cmd_clarify")],
-            [InlineKeyboardButton("📢 /broadcast - Send Message to All", callback_data="cmd_broadcast")],
-            [InlineKeyboardButton("👤 /list_employees - View All Employees", callback_data="cmd_list_employees")],
-            [InlineKeyboardButton("❓ /help - Show All Commands", callback_data="cmd_help")]
+            [InlineKeyboardButton("📝 Assign Tasks", callback_data="cmd_assign"),
+             InlineKeyboardButton("📃 View Tasks", callback_data="cmd_tasks")],
+            [InlineKeyboardButton("💬 Clarify Tasks", callback_data="cmd_clarify"),
+             InlineKeyboardButton("📢 Broadcast", callback_data="cmd_broadcast")],
+            [InlineKeyboardButton("👤 List Employees", callback_data="cmd_list_employees"),
+             InlineKeyboardButton("❓ Help", callback_data="cmd_help")]
         ]
     else:
         employee_name = get_employee_name(chat_id)
@@ -339,7 +339,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Create buttons for employee commands - simplified menu
             keyboard = [
                 [InlineKeyboardButton("📄 View Tasks", callback_data="cmd_tasks"),
-                 InlineKeyboardButton("❓ Ask Questions", callback_data="cmd_inquire")],
+                 InlineKeyboardButton("❓ Clarify Tasks", callback_data="cmd_inquire")],
                 [InlineKeyboardButton("📢 Notify Admin", callback_data="cmd_notify"),
                  InlineKeyboardButton("❓ Help", callback_data="cmd_help")]
             ]
@@ -380,28 +380,18 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if len(args) < 2:
             logger.warning(f"Insufficient arguments: {args}")
             await update.message.reply_text(
-                "❌ *Task Assignment Command Format*\n\n"
+                "📝 *Task Assignment Command*\n\n"
                 "`/assign employee1,employee2 <task> [time] [p:priority] [due:date]`\n\n"
                 "*Required Parameters:*\n"
                 "• `employee1,employee2` - Comma-separated list of employees\n"
                 "• `<task>` - Task description\n\n"
-                "*Optional Parameters:*\n\n"
-                "*Time Format:*\n"
-                "• `30m` - 30 minutes\n"
-                "• `2h` - 2 hours\n"
-                "• `1d` - 1 day\n\n"
-                "*Priority Options:*\n"
-                "• `p:high` - 🔴 High priority\n"
-                "• `p:medium` - 🟡 Medium priority\n"
-                "• `p:low` - 🟢 Low priority\n\n"
-                "*Due Date Options:*\n"
-                "• `due:today` - Due today\n"
-                "• `due:tomorrow` - Due tomorrow\n"
-                "• `due:nextweek` - Due next week\n"
-                "• `due:YYYY-MM-DD` - Due on specific date\n\n"
+                "*Optional Parameters:*\n"
+                "• *Time:* `30m` (30 min), `2h` (2 hours), `1d` (1 day)\n"
+                "• *Priority:* `p:high` 🔴, `p:medium` 🟡, `p:low` 🟢\n"
+                "• *Due Date:* `due:today`, `due:tomorrow`, `due:nextweek`, `due:YYYY-MM-DD`\n\n"
                 "*Examples:*\n"
-                "`/assign rehan,shameem Check inventory 30m p:high due:tomorrow`\n"
-                "`/assign rehan Daily report 1d p:medium due:2025-04-20`",
+                "• `/assign rehan,shameem Check inventory 30m p:high due:tomorrow`\n"
+                "• `/assign rehan Daily report 1d p:medium due:2025-04-20`",
                 parse_mode=ParseMode.MARKDOWN
             )
             return
@@ -618,13 +608,19 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "`/list_employees` - View all employees\n"
             "`/add_employee` - Add a new employee\n"
             "`/remove_employee` - Remove an employee\n"
+            "`/task` - View tasks assigned to a specific employee\n"
+            "`/dbstatus` - Check database connection status\n"
+            "`/help` - Show this message\n\n"
+            "*Legacy Commands* \(use /tasks instead\):\n"
+            "`/done` - Same as /tasks\n"
         )
     else:
         # Employee help text - consistent with button help
         help_text = (
-            "📋 Employee Commands\n\n"
+            "📋 *Employee Commands*\n\n"
             "`/start` - Show main menu with command buttons\n"
             "`/tasks` - View your tasks and mark them as completed\n"
+            "`/inquire` - Ask questions about tasks\n"
             "`/notify` - Send message to admin\n\n"
             "You can also use the buttons in the main menu to access these features."
         )
@@ -670,19 +666,19 @@ async def send_active_tasks(chat_id, context):
                 # Add time allocation
                 task_message += f"• *Time allocated:* {task.get('reminder_interval', 'Not specified')} minutes\n"
                 
-                # Add assigned date/time if available
+                # Always add assigned date/time
                 assigned_at = task.get('assigned_at')
                 if assigned_at:
                     # Format the datetime
                     formatted_date = assigned_at.strftime('%Y-%m-%d %H:%M')
                     task_message += f"• *Assigned at:* {formatted_date}\n"
                 
-                # Add due date if available
+                # Always add due date if available
                 due_date = task.get('due_date')
                 if due_date:
                     task_message += f"• *Due:* {due_date}\n"
                     
-                # Add priority if available
+                # Always add priority if available
                 priority = task.get('priority')
                 if priority:
                     priority_icon = "🔴" if priority.lower() == "high" else "🟡" if priority.lower() == "medium" else "🟢"
@@ -737,19 +733,19 @@ async def send_active_tasks(chat_id, context):
                     f"• *Time allocated:* {time_allocated} minutes\n"
                 )
                 
-                # Add assigned date/time if available
+                # Always add assigned date/time
                 assigned_at = task.get('assigned_at')
                 if assigned_at:
                     # Format the datetime
                     formatted_date = assigned_at.strftime('%Y-%m-%d %H:%M')
                     task_message += f"• *Assigned at:* {formatted_date}\n"
                 
-                # Add due date if available
+                # Always add due date if available
                 due_date = task.get('due_date')
                 if due_date:
                     task_message += f"• *Due:* {due_date}\n"
                     
-                # Add priority if available
+                # Always add priority if available
                 priority = task.get('priority')
                 if priority:
                     priority_icon = "🔴" if priority.lower() == "high" else "🟡" if priority.lower() == "medium" else "🟢"
