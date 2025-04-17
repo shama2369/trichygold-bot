@@ -316,14 +316,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Select a command below:"
         )
         
-        # Create buttons for admin commands
+        # Create buttons for admin commands with command shortcuts
         keyboard = [
-            [InlineKeyboardButton("📝 Assign Tasks", callback_data="cmd_assign"),
-             InlineKeyboardButton("📃 View Tasks", callback_data="cmd_tasks")],
-            [InlineKeyboardButton("💬 Clarify Tasks", callback_data="cmd_clarify"),
-             InlineKeyboardButton("📢 Broadcast", callback_data="cmd_broadcast")],
-            [InlineKeyboardButton("👤 List Employees", callback_data="cmd_list_employees"),
-             InlineKeyboardButton("❓ Help", callback_data="cmd_help")]
+            [InlineKeyboardButton("📝 /assign - Assign Tasks", callback_data="cmd_assign")],
+            [InlineKeyboardButton("📃 /tasks - View Tasks", callback_data="cmd_tasks")],
+            [InlineKeyboardButton("💬 /clarify - Add Details to Tasks", callback_data="cmd_clarify")],
+            [InlineKeyboardButton("📢 /broadcast - Send Message to All", callback_data="cmd_broadcast")],
+            [InlineKeyboardButton("👤 /list_employees - View All Employees", callback_data="cmd_list_employees")],
+            [InlineKeyboardButton("❓ /help - Show All Commands", callback_data="cmd_help")]
         ]
     else:
         employee_name = get_employee_name(chat_id)
@@ -610,6 +610,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         help_text = (
             "📐 *TrichyGold Task Manager Help*\n\n"
             "*Admin Commands:*\n"
+            "`/start` - Show main menu with command buttons\n"
             "`/assign` - Assign tasks to employees\n"
             "`/tasks` - View and manage all tasks\n"
             "`/clarify` - Add details to a task\n"
@@ -622,6 +623,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Employee help text - consistent with button help
         help_text = (
             "📋 Employee Commands\n\n"
+            "`/start` - Show main menu with command buttons\n"
             "`/tasks` - View your tasks and mark them as completed\n"
             "`/notify` - Send message to admin\n\n"
             "You can also use the buttons in the main menu to access these features."
@@ -914,75 +916,125 @@ async def done_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return await tasks_command(update, context)
 
 async def clarify_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /clarify command for admin to add details to tasks"""
+    """Handle /clarify command for admin to add details to existing tasks"""
     try:
         chat_id = str(update.message.chat_id)
         
+        # Only admin can use this command
         if chat_id != YOUR_ID:
-            await update.message.reply_text("❌ Only admin can use this command.")
+            logger.warning(f"Unauthorized clarify attempt from {chat_id}")
+            await update.message.reply_text("❌ Only admin can use this command!")
             return
-            
+        
+        # Check if task_id and clarification text were provided
         args = context.args
-        if len(args) < 2:
+        if not args or len(args) < 2:
             await update.message.reply_text(
-                "❌ Usage: /clarify <task_id> <clarification_text>\n\n"
-                "Example: /clarify 25 Please check the inventory first"
+                "❌ *Clarification Command Format*\n\n"
+                "`/clarify <task_id> <details>`\n\n"
+                "*Example:* `/clarify 42 Please include screenshots in the report`",
+                parse_mode=ParseMode.MARKDOWN
             )
             return
             
-        # Extract task ID and clarification text
-        task_id = None
+        # Extract task_id and clarification text
         try:
             task_id = int(args[0])
-        except ValueError:
-            await update.message.reply_text("❌ Task ID must be a number.")
-            return
+            clarification_text = " ".join(args[1:])
             
-        # Get the clarification text (everything after the task ID)
-        clarification_text = " ".join(args[1:])
+            # Log the clarification attempt
+            logger.info(f"Admin attempting to add clarification to Task #{task_id}: {clarification_text[:30]}...")
+            
+        except ValueError:
+            await update.message.reply_text("❌ Task ID must be a number!")
+            return
         
-        # Check if task exists in MongoDB
+        # Get task from database
         task = db.tasks.find_one({"task_id": task_id})
         if not task:
+            logger.warning(f"Clarification attempt for non-existent Task #{task_id}")
             await update.message.reply_text(f"❌ Task #{task_id} not found!")
             return
             
+        # Check if task is already completed
         if task.get('status') == 'completed' or task.get('completed', False):
             await update.message.reply_text(f"❌ Task #{task_id} is already completed. Cannot add clarification.")
             return
             
-        # Add clarification to task in MongoDB
+        # Add clarification to task
+        current_time = datetime.now()
         clarification = {
             "text": clarification_text,
-            "timestamp": datetime.now()
+            "added_by": "Admin",
+            "added_at": current_time
         }
         
         # Update task with new clarification
+        # If clarifications field doesn't exist, create it as an array with this clarification
         result = db.tasks.update_one(
             {"task_id": task_id},
             {"$push": {"clarifications": clarification}}
         )
         
-        if result.modified_count == 0:
-            await update.message.reply_text(f"❌ Failed to add clarification to Task #{task_id}.")
-            return
-        
-        # Send confirmation to admin
-        await update.message.reply_text(f"✅ Clarification added to Task #{task_id}!\n\n*Task:* {task['task']}\n\n*Clarification:* {clarification_text}", parse_mode=ParseMode.MARKDOWN)
-        
-        # Notify assigned employees about the clarification
-        assigned_to = task.get('assigned_to', [])
-        for emp_chat_id in assigned_to:
-            try:
-                await context.bot.send_message(
-                    chat_id=emp_chat_id,
-                    text=f"📝 *Task Clarification*\n\n"
-                         f"*Task #{task_id}:* {task['task']}\n\n"
-                         f"*Clarification:* {clarification_text}",
-                    parse_mode=ParseMode.MARKDOWN
-                )
-            except Exception as e:
-                logger.error(f"Failed to send clarification to employee {emp_chat_id}: {e}")
+        if result.modified_count > 0:
+            logger.info(f"Successfully added clarification to Task #{task_id}")
+            
+            # Notify all assigned employees about the clarification
+            assigned_ids = task.get('assigned_to', [])
+            employee_names = task.get('employees', [])
+            notification_sent_count = 0
+            failed_notifications = []
+            
+            # Format the notification message
+            notification = (
+                f"ℹ️ *Task Update*\n\n"
+                f"*Task #{task_id}*\n"
+                f"• *Description:* {task.get('task', 'No description')}\n"
+            )
+            
+            # Add priority if available
+            priority = task.get('priority')
+            if priority:
+                priority_icon = "🔴" if priority.lower() == "high" else "🟡" if priority.lower() == "medium" else "🟢"
+                notification += f"• *Priority:* {priority_icon} {priority}\n"
+            
+            # Add due date if available
+            due_date = task.get('due_date')
+            if due_date:
+                notification += f"• *Due:* {due_date}\n"
+                
+            # Add the clarification
+            notification += f"\n*New clarification:*\n{clarification_text}"
+            
+            # Send notification to each assigned employee
+            for emp_chat_id in assigned_ids:
+                try:
+                    await context.bot.send_message(
+                        chat_id=emp_chat_id,
+                        text=notification,
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+                    notification_sent_count += 1
+                except Exception as e:
+                    logger.error(f"Failed to send clarification to employee {emp_chat_id}: {e}")
+                    failed_notifications.append(emp_chat_id)
+            
+            # Confirm to admin
+            confirmation = (
+                f"✅ *Clarification added to Task #{task_id}*\n\n"
+                f"• *Task:* {task.get('task', 'No description')}\n"
+                f"• *Clarification:* {clarification_text}\n"
+                f"• *Notification sent to:* {notification_sent_count}/{len(assigned_ids)} employees"
+            )
+            
+            # Add info about failed notifications if any
+            if failed_notifications:
+                confirmation += f"\n\n⚠️ Failed to notify: {len(failed_notifications)} employees"
+            
+            await update.message.reply_text(confirmation, parse_mode=ParseMode.MARKDOWN)
+        else:
+            logger.error(f"Database update failed for clarification to Task #{task_id}")
+            await update.message.reply_text(f"❌ Failed to add clarification to Task #{task_id}!")
             
     except Exception as e:
         logger.error(f"Error in clarify_command: {e}")
