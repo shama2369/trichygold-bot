@@ -820,8 +820,12 @@ async def tasks_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 task_message = (
                     f"📋 *Task #{task_id}*\n\n"
                     f"• *Description:* {task_desc}\n"
-                    f"• *Created:* {created_at} (UAE)\n"
                 )
+                
+                # Add assigned date if available
+                assigned_date = task.get('assigned_date')
+                if assigned_date:
+                    task_message += f"• *Assigned:* {assigned_date}\n"
                 
                 # Add time allocation if available
                 time_allocated = task.get('reminder_interval')
