@@ -2042,62 +2042,54 @@ async def task_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def inquire_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /inquire command for employees to ask questions about tasks"""
     try:
+        from database import db
         chat_id = str(update.message.chat_id)
-        employee_name = None
-        
-        # Find employee by chat ID
-        for name, emp_id in EMPLOYEES.items():
-            if emp_id == chat_id:
-                employee_name = name
-                break
-                
-        if not employee_name:
+        emp = db.employees.find_one({"chat_id": chat_id})
+        if not emp:
             await update.message.reply_text("❌ You are not registered as an employee.")
             return
-            
+        employee_name = emp.get('name')
+
         # If no task ID provided, show active tasks
         if not context.args:
-            active_tasks = []
-            for task_id, task in TASKS.items():
-                if (employee_name in task.get('employees', []) and 
-                    task.get('status') != 'completed'):
-                    active_tasks.append(f"Task #{task_id}: {task['task']}")
-            
+            active_tasks = list(db.tasks.find({
+                "employees": employee_name,
+                "status": {"$ne": "completed"}
+            }))
             if not active_tasks:
                 await update.message.reply_text("📝 You have no active tasks to inquire about.")
                 return
-                
             message = (
                 "To ask a question, use:\n"
                 "/inquire <task_id>\n\n"
-                "📋 Your Active Tasks:\n\n" + 
-                "\n\n".join(active_tasks)
+                "📋 Your Active Tasks:\n\n" +
+                "\n\n".join([f"Task #{str(task['_id'])}: {task['task']}" for task in active_tasks])
             )
             await update.message.reply_text(message)
             return
-            
+
         task_id = context.args[0]
-        
-        if task_id not in TASKS:
+        from bson import ObjectId
+        try:
+            task_obj_id = ObjectId(task_id)
+        except Exception:
+            await update.message.reply_text("❌ Invalid task ID format.")
+            return
+        task = db.tasks.find_one({"_id": task_obj_id})
+        if not task:
             await update.message.reply_text("❌ Invalid task ID.")
             return
-            
-        task = TASKS[task_id]
-        
         if employee_name not in task.get('employees', []):
             await update.message.reply_text("❌ You are not assigned to this task.")
             return
-            
         if task.get('status') == 'completed':
             await update.message.reply_text("❌ Cannot inquire about completed task.")
             return
-            
         # Store context for handling the next message
         context.user_data['inquiring_task'] = {
-            'task_id': task_id,
+            'task_id': str(task['_id']),
             'employee_name': employee_name
         }
-        
         await update.message.reply_text(
             f"📝 Ask your question about Task #{task_id}:\n"
             f"{task['task']}\n\n"
@@ -2112,6 +2104,7 @@ async def inquire_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error in inquire_command: {e}")
         await update.message.reply_text("❌ An error occurred while processing your command.")
 
+# ... (rest of the code remains the same)
 async def handle_inquiry(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle inquiry messages from employees"""
     try:
