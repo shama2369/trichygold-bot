@@ -151,23 +151,87 @@ async def process_button_callback(query, bot):
             try:
                 # Import required classes inside the function to ensure they're available
                 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+                from database import db
                 
-                # Send a simple response with sample tasks
+                # Get active tasks from database
+                active_tasks = list(db.tasks.find({"status": {"$ne": "completed"}, "completed": {"$ne": True}}))
+                
+                if not active_tasks:
+                    await query.message.reply_text("📋 *No active tasks at the moment.*", parse_mode=ParseMode.MARKDOWN)
+                    return
+                
+                # Format tasks based on user role
                 message = "📋 *Active Tasks*\n\n"
-                message += "*Task #1*\n"
-                message += "📌 Check inventory\n"
-                message += "👤 Assigned to: Rehan, Shameem\n\n"
+                keyboard = []
                 
-                message += "*Task #2*\n"
-                message += "📌 Clean storage area\n"
-                message += "👤 Assigned to: Rehan\n\n"
+                if str(chat_id) == YOUR_ID:  # Admin view - show all tasks
+                    for task in active_tasks:
+                        task_id = task.get('task_id')
+                        task_desc = task.get('task', 'No description')
+                        
+                        # Get assigned employees
+                        assigned_ids = task.get('assigned_to', [])
+                        assigned_names = []
+                        for emp_id in assigned_ids:
+                            emp = db.employees.find_one({"chat_id": str(emp_id)})
+                            if emp and emp.get('name'):
+                                assigned_names.append(emp.get('name'))
+                        
+                        # Format task info
+                        message += f"*Task #{task_id}*\n"
+                        message += f"📌 {task_desc}\n"
+                        message += f"👤 Assigned to: {', '.join(assigned_names) if assigned_names else 'Unassigned'}\n\n"
+                        
+                        # Add button for this task
+                        keyboard.append([InlineKeyboardButton(f"✅ Mark Task #{task_id} Complete", callback_data=f"taskdone_{task_id}")])
+                else:  # Employee view - show only their tasks
+                    employee_name = get_employee_name(chat_id)
+                    if not employee_name:
+                        await query.message.reply_text("❌ *You are not registered as an employee.*", parse_mode=ParseMode.MARKDOWN)
+                        return
+                    
+                    # Filter tasks for this employee
+                    employee_tasks = []
+                    for task in active_tasks:
+                        assigned_to = task.get('assigned_to', [])
+                        assigned_to_str = [str(cid) for cid in assigned_to] if isinstance(assigned_to, list) else []
+                        
+                        employees = task.get('employees', [])
+                        employees_list = employees if isinstance(employees, list) else []
+                        
+                        if str(chat_id) in assigned_to_str or employee_name in employees_list:
+                            employee_tasks.append(task)
+                    
+                    if not employee_tasks:
+                        await query.message.reply_text("📋 *You have no active tasks at the moment.*", parse_mode=ParseMode.MARKDOWN)
+                        return
+                    
+                    for task in employee_tasks:
+                        task_id = task.get('task_id')
+                        task_desc = task.get('task', 'No description')
+                        
+                        # Format task info
+                        message += f"*Task #{task_id}*\n"
+                        message += f"📌 {task_desc}\n"
+                        
+                        # Add priority if available
+                        priority = task.get('priority')
+                        if priority:
+                            priority_icon = "🔴" if priority.lower() == "high" else "🟡" if priority.lower() == "medium" else "🟢"
+                            message += f"*Priority:* {priority_icon} {priority}\n"
+                        
+                        # Add due date if available
+                        due_date = task.get('due_date')
+                        if due_date:
+                            message += f"*Due:* {due_date}\n\n"
+                        else:
+                            message += "\n"
+                        
+                        # Add button for this task
+                        keyboard.append([InlineKeyboardButton(f"✅ Mark Task #{task_id} Complete", callback_data=f"taskdone_{task_id}")])
                 
-                # Add task action buttons
-                keyboard = [
-                    [InlineKeyboardButton("✅ Mark Task #1 Complete", callback_data="taskdone_1")],
-                    [InlineKeyboardButton("✅ Mark Task #2 Complete", callback_data="taskdone_2")],
-                    [InlineKeyboardButton("🔄 Refresh Tasks", callback_data="cmd_tasks")]
-                ]
+                # Add refresh button at the bottom
+                keyboard.append([InlineKeyboardButton("🔄 Refresh Tasks", callback_data="cmd_tasks")])
                 
                 await query.message.reply_text(
                     message, 
@@ -186,6 +250,17 @@ async def process_button_callback(query, bot):
                 "*Example:*\n"
                 "`/inquire 5 What is the deadline for this task?`\n\n"
                 "Your question will be sent to the admin.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            
+        elif data == 'cmd_clarify':
+            # Show clarify command format for admin
+            await query.message.reply_text(
+                "💬 *Task Clarification*\n\n"
+                "`/clarify <task_id> <additional details>`\n\n"
+                "*Example:*\n"
+                "`/clarify 3 Please check the back storage area first`\n\n"
+                "This clarification will be sent to all employees assigned to the task.",
                 parse_mode=ParseMode.MARKDOWN
             )
             

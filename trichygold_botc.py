@@ -339,9 +339,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Create buttons for employee commands - simplified menu
             keyboard = [
                 [InlineKeyboardButton("📄 View Tasks", callback_data="cmd_tasks"),
-                 InlineKeyboardButton("❓ Clarify Tasks", callback_data="cmd_inquire")],
+                 InlineKeyboardButton("💬 Clarify Tasks", callback_data="cmd_inquire")],
                 [InlineKeyboardButton("📢 Notify Admin", callback_data="cmd_notify"),
-                 InlineKeyboardButton("❓ Help", callback_data="cmd_help")]
+                 InlineKeyboardButton("📖 Help", callback_data="cmd_help")]
             ]
         else:
             # Unregistered user welcome message
