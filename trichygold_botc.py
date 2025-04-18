@@ -975,7 +975,17 @@ async def handle_task_completion(update: Update, context: ContextTypes.DEFAULT_T
             )
         
         await update.message.reply_text(f"✅ Task #{task_id} marked as completed!")
-        
+
+        # Refresh active task list for all assigned employees
+        assigned_employees = updated_task.get('employees', [])
+        for emp_name in assigned_employees:
+            emp = db.employees.find_one({"name": emp_name})
+            if emp and emp.get('chat_id'):
+                try:
+                    await send_active_tasks(emp['chat_id'], context)
+                except Exception as e:
+                    logger.error(f"Failed to refresh active tasks for {emp_name}: {e}")
+
     except Exception as e:
         logger.error(f"Error in handle_task_completion: {e}")
         await update.message.reply_text("❌ Failed to process command. Please try again.")
@@ -2114,23 +2124,22 @@ async def handle_inquiry(update: Update, context: ContextTypes.DEFAULT_TYPE):
         inquiry_data = context.user_data['inquiring_task']
         task_id = inquiry_data['task_id']
         employee_name = inquiry_data['employee_name']
-        task = TASKS[task_id]
-        
-        # Handle different types of media
-        message_text = update.message.text if update.message.text else None
-        voice = update.message.voice.file_id if update.message.voice else None
-        document = update.message.document.file_id if update.message.document else None
-        photo = update.message.photo[-1].file_id if update.message.photo else None
-        
-        # Store inquiry in task history
-        inquiry = {
-            'type': 'text' if message_text else 'voice' if voice else 'document' if document else 'photo',
-            'content': message_text or voice or document or photo,
-            'employee': employee_name,
-            'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        }
-        
-        task.setdefault('inquiries', []).append(inquiry)
+        # Store inquiry in database, not just in memory
+        from bson import ObjectId
+        from database import db
+        try:
+            task_obj_id = ObjectId(task_id)
+            inquiry = {
+                'task_id': task_obj_id,
+                'employee': employee_name,
+                'type': 'text' if update.message.text else 'voice' if update.message.voice else 'document' if update.message.document else 'photo',
+                'content': update.message.text or (update.message.voice.file_id if update.message.voice else None) or (update.message.document.file_id if update.message.document else None) or (update.message.photo[-1].file_id if update.message.photo else None),
+                'timestamp': datetime.now()
+            }
+            db.inquiries.insert_one(inquiry)
+            db.tasks.update_one({'_id': task_obj_id}, {'$push': {'inquiries': inquiry}})
+        except Exception as e:
+            logger.error(f"Failed to store inquiry in DB: {e}")
         
         # Send to admin
         try:
@@ -2139,27 +2148,22 @@ async def handle_inquiry(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 chat_id=YOUR_ID,
                 text=f"❓ New inquiry for Task #{task_id}\n"
                      f"From: {employee_name}\n"
-                     f"Task: {task['task']}\n\n"
                      f"Question:"
             )
-            
             # Send the actual content
-            if message_text:
-                await context.bot.send_message(chat_id=YOUR_ID, text=message_text)
-            elif voice:
-                await context.bot.send_voice(chat_id=YOUR_ID, voice=voice)
-            elif document:
-                await context.bot.send_document(chat_id=YOUR_ID, document=document)
-            elif photo:
-                await context.bot.send_photo(chat_id=YOUR_ID, photo=photo)
-                
+            if update.message.text:
+                await context.bot.send_message(chat_id=YOUR_ID, text=update.message.text)
+            elif update.message.voice:
+                await context.bot.send_voice(chat_id=YOUR_ID, voice=update.message.voice.file_id)
+            elif update.message.document:
+                await context.bot.send_document(chat_id=YOUR_ID, document=update.message.document.file_id)
+            elif update.message.photo:
+                await context.bot.send_photo(chat_id=YOUR_ID, photo=update.message.photo[-1].file_id)
             # Send confirmation to employee
             await update.message.reply_text("✅ Your question has been sent to the admin.")
-            
         except Exception as e:
             logger.error(f"Failed to send inquiry to admin: {e}")
             await update.message.reply_text("❌ Failed to send your question. Please try again later.")
-            
         # Clear context
         del context.user_data['inquiring_task']
         
@@ -2200,26 +2204,31 @@ async def send_task_reminder(context: ContextTypes.DEFAULT_TYPE):
     """Send reminder for specific task"""
     job = context.job
     task_id = job.data['task_id']
-    
+    logger.info(f"[Reminder] Scheduling reminder for Task #{task_id}")
     try:
         # Get task from database
         task_info = db.get_task(task_id)
-        
-        if task_info and task_info['status'] == 'active':
+
+        if task_info and task_info.get('status') == 'active':
             message = (
                 f"⏰ Reminder: Task #{task_id}\n\n"
                 f"Task: {task_info['task']}\n"
                 f"Use /taskdone {task_id} when completed"
             )
-            
-            for employee in task_info['employees']:
-                try:
-                    await context.bot.send_message(
-                        chat_id=EMPLOYEES[employee],
-                        text=message
-                    )
-                except Exception as e:
-                    logger.error(f"Failed to send reminder to {employee}: {e}")
+            employees = task_info.get('employees', [])
+            for employee_name in employees:
+                emp = db.employees.find_one({"name": employee_name})
+                if emp and emp.get('chat_id'):
+                    try:
+                        await context.bot.send_message(
+                            chat_id=emp['chat_id'],
+                            text=message
+                        )
+                        logger.info(f"[Reminder] Sent reminder for Task #{task_id} to {employee_name} ({emp['chat_id']})")
+                    except Exception as e:
+                        logger.error(f"Failed to send reminder to {employee_name}: {e}")
+                else:
+                    logger.error(f"Could not find chat_id for employee {employee_name} when sending reminder for Task #{task_id}")
         else:
             logger.info(f"Task #{task_id} is no longer active, removing reminder job")
             job.schedule_removal()
