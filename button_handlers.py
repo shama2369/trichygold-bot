@@ -116,20 +116,30 @@ async def process_button_callback(query, bot):
             )
             
         elif data == 'cmd_assign':
-            # Show assign task command format
+            # Show assign task command format - match BotFather format exactly
+            from database import db
+            
+            # Get available employees for the example
+            all_employees = list(db.employees.find())
+            employee_names = [emp.get('name', 'employee') for emp in all_employees]
+            
+            # Use actual employee names in the example if available
+            example_employees = ",".join(employee_names[:2]) if len(employee_names) >= 2 else "employee1,employee2"
+            
             await query.message.reply_text(
-                "📝 *Task Assignment Command*\n\n"
+                "📝 *Task Assignment*\n\n"
+                "Use the command format:\n"
                 "`/assign employee1,employee2 <task> [time] [p:priority] [due:date]`\n\n"
-                "*Required Parameters:*\n"
-                "• `employee1,employee2` - Comma-separated list of employees\n"
-                "• `<task>` - Task description\n\n"
-                "*Optional Parameters:*\n"
-                "• *Time:* `30m` (30 min), `2h` (2 hours), `1d` (1 day)\n"
-                "• *Priority:* `p:high` 🔴, `p:medium` 🟡, `p:low` 🟢\n"
-                "• *Due Date:* `due:today`, `due:tomorrow`, `due:nextweek`, `due:YYYY-MM-DD`\n\n"
+                "*Required:*\n"
+                "• Employee names (comma-separated)\n"
+                "• Task description\n\n"
+                "*Optional:*\n"
+                "• Time: `30m`, `2h`, `1d`\n"
+                "• Priority: `p:high` 🔴, `p:medium` 🟡, `p:low` 🟢\n"
+                "• Due date: `due:today`, `due:tomorrow`, `due:YYYY-MM-DD`\n\n"
                 "*Examples:*\n"
-                "• `/assign rehan,shameem Check inventory 30m p:high due:tomorrow`\n"
-                "• `/assign rehan Daily report 1d p:medium due:2025-04-20`",
+                f"• `/assign {example_employees} Check inventory 30m p:high due:tomorrow`\n"
+                f"• `/assign {employee_names[0] if employee_names else 'employee1'} Daily report 1d p:medium due:2025-04-20`",
                 parse_mode=ParseMode.MARKDOWN
             )
             

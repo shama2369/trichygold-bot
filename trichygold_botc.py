@@ -591,6 +591,80 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Traceback: {traceback.format_exc()}")
         await update.message.reply_text(f"❌ Failed to assign task: {e}")
 
+async def send_task_reminder(context):
+    """Send reminder for a task"""
+    try:
+        # Get the task ID from the job data
+        job = context.job
+        task_id = job.data.get('task_id')
+        
+        if not task_id:
+            logger.error("No task_id provided in reminder job data")
+            return
+            
+        # Get task details from database
+        task = db.tasks.find_one({'task_id': task_id})
+        
+        if not task:
+            logger.error(f"Task #{task_id} not found for reminder")
+            return
+            
+        # Check if task is already completed
+        if task.get('completed') or task.get('status') == 'completed':
+            logger.info(f"Task #{task_id} is already completed, stopping reminders")
+            # Cancel this job
+            job.schedule_removal()
+            return
+            
+        # Get assigned employees
+        assigned_to = task.get('assigned_to', [])
+        if not assigned_to:
+            logger.warning(f"Task #{task_id} has no assigned employees for reminder")
+            return
+            
+        # Get task details
+        task_desc = task.get('task', 'No description')
+        priority = task.get('priority')
+        due_date = task.get('due_date')
+        
+        # Create reminder message
+        reminder_message = f"⏰ *Task Reminder*\n\n"
+        reminder_message += f"*Task #{task_id}*: {task_desc}\n\n"
+        
+        # Add priority if available
+        if priority:
+            priority_icon = "🔴" if priority.lower() == "high" else "🟡" if priority.lower() == "medium" else "🟢"
+            reminder_message += f"*Priority:* {priority_icon} {priority}\n"
+        
+        # Add due date if available
+        if due_date:
+            reminder_message += f"*Due Date:* {due_date}\n"
+        
+        reminder_message += "\nPlease complete this task or mark it as done."
+        
+        # Create keyboard with done button
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        keyboard = [
+            [InlineKeyboardButton("✅ Mark as Done", callback_data=f"taskdone_{task_id}")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        # Send reminder to each assigned employee
+        for emp_id in assigned_to:
+            try:
+                await context.bot.send_message(
+                    chat_id=emp_id,
+                    text=reminder_message,
+                    reply_markup=reply_markup,
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                logger.info(f"Sent reminder for Task #{task_id} to employee {emp_id}")
+            except Exception as e:
+                logger.error(f"Failed to send reminder to employee {emp_id}: {e}")
+                
+    except Exception as e:
+        logger.error(f"Error in send_task_reminder: {e}")
+
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /help command to display available commands"""
     chat_id = str(update.message.chat_id)
@@ -878,7 +952,7 @@ async def handle_task_completion(update: Update, context: ContextTypes.DEFAULT_T
         if task_info.get('status') != 'active':
             await update.message.reply_text(f"❌ Task #{task_id} is already completed!")
             return
-        
+            
         # Update task status in database
         completer = "Admin" if is_admin else employee_name
         success = db.update_task_status(task_id, 'completed', completer)
@@ -905,6 +979,7 @@ async def handle_task_completion(update: Update, context: ContextTypes.DEFAULT_T
     except Exception as e:
         logger.error(f"Error in handle_task_completion: {e}")
         await update.message.reply_text("❌ Failed to process command. Please try again.")
+        
 
 # Keep the original done_command as a wrapper around tasks_command for backward compatibility
 async def done_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
