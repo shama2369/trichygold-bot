@@ -30,6 +30,12 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
         await query.message.reply_text(f"Error: {str(e)}")
 
 
+def get_employee_name(chat_id):
+    """Helper function to get employee name by chat_id from the database."""
+    from database import db
+    emp = db.employees.find_one({"chat_id": str(chat_id)})
+    return emp.get('name') if emp else None
+
 async def process_button_callback(query, bot):
     """Process button callbacks directly without creating mock updates"""
     try:
@@ -177,12 +183,22 @@ async def process_button_callback(query, bot):
                             if emp and emp.get('name'):
                                 assigned_names.append(emp.get('name'))
                         
-                        # Format task info
+                        # Format extra info
+                        priority = task.get('priority')
+                        due_date = task.get('due_date')
+                        assigned_date = task.get('assigned_date')
+                        
                         message += f"*Task #{task_id}*\n"
                         message += f"📌 {task_desc}\n"
-                        message += f"👤 Assigned to: {', '.join(assigned_names) if assigned_names else 'Unassigned'}\n\n"
-                        
-                        # Add button for this task
+                        message += f"👤 Assigned to: {', '.join(assigned_names) if assigned_names else 'Unassigned'}\n"
+                        if priority:
+                            priority_icon = "🔴" if priority.lower() == "high" else "🟡" if priority.lower() == "medium" else "🟢"
+                            message += f"*Priority:* {priority_icon} {priority}\n"
+                        if due_date:
+                            message += f"*Due:* {due_date}\n"
+                        if assigned_date:
+                            message += f"*Assigned:* {assigned_date}\n"
+                        message += "\n"
                         keyboard.append([InlineKeyboardButton(f"✅ Mark Task #{task_id} Complete", callback_data=f"taskdone_{task_id}")])
                 else:  # Employee view - show only their tasks
                     employee_name = get_employee_name(chat_id)
@@ -252,6 +268,10 @@ async def process_button_callback(query, bot):
                 "Your question will be sent to the admin.",
                 parse_mode=ParseMode.MARKDOWN
             )
+            
+            # Optionally, prompt user for task ID and question if not using command
+            # You could implement a conversation handler for a more interactive flow
+
             
         elif data == 'cmd_clarify':
             # Show clarify command format for admin
