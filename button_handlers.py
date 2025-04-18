@@ -139,6 +139,9 @@ async def process_button_callback(query, bot):
             
             # For tasks, we'll implement a direct response instead of calling the command
             try:
+                # Import required classes inside the function to ensure they're available
+                from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+                
                 # Send a simple response with sample tasks
                 message = "📋 *Active Tasks*\n\n"
                 message += "*Task #1*\n"
