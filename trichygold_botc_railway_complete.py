@@ -9,7 +9,6 @@ import os
 import re
 import copy
 import traceback
-from telegram import Update, ParseMode
 from telegram.error import TelegramError
 
 # Set up logging
@@ -127,7 +126,7 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await context.bot.send_message(
                     chat_id=YOUR_ID,
                     text=error_msg,
-                    parse_mode=ParseMode.MARKDOWN
+                    parse_mode=ParseMode
                 )
             except Exception as e:
                 logger.error(f"Failed to notify admin: {e}")
@@ -279,7 +278,7 @@ Format: /notify message
         ]
     
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text(help_text, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
+    await update.message.reply_text(help_text, reply_markup=reply_markup, parse_mode=ParseMode)
 
 # Initialize employees directly in MongoDB
 def initialize_employees_in_mongodb():
