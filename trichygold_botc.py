@@ -504,7 +504,19 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Store in database
         db.tasks.insert_one(task_data)
-        
+
+        # --- Schedule reminder job for this task ---
+        try:
+            job = context.job_queue.run_repeating(
+                send_task_reminder,
+                interval=minutes*60,  # convert minutes to seconds
+                first=minutes*60,  # first reminder after 'minutes'
+                data={"task_id": task_id}
+            )
+            logger.info(f"[Reminder] Scheduled repeating reminder for Task #{task_id} every {minutes} minutes (job id={getattr(job, 'name', 'N/A')})")
+        except Exception as e:
+            logger.error(f"[Reminder] Failed to schedule reminder for Task #{task_id}: {e}")
+
         # Send task to each employee
         for i, emp_name in enumerate(employee_names):
             emp_chat_id = employee_chat_ids[i]
@@ -2204,11 +2216,11 @@ async def send_task_reminder(context: ContextTypes.DEFAULT_TYPE):
     """Send reminder for specific task"""
     job = context.job
     task_id = job.data['task_id']
-    logger.info(f"[Reminder] Scheduling reminder for Task #{task_id}")
+    logger.info(f"[Reminder] send_task_reminder called for Task #{task_id}")
     try:
         # Get task from database
         task_info = db.get_task(task_id)
-
+        logger.info(f"[Reminder] Task info for Task #{task_id}: {task_info}")
         if task_info and task_info.get('status') == 'active':
             message = (
                 f"⏰ Reminder: Task #{task_id}\n\n"
@@ -2216,8 +2228,10 @@ async def send_task_reminder(context: ContextTypes.DEFAULT_TYPE):
                 f"Use /taskdone {task_id} when completed"
             )
             employees = task_info.get('employees', [])
+            logger.info(f"[Reminder] Employees for Task #{task_id}: {employees}")
             for employee_name in employees:
                 emp = db.employees.find_one({"name": employee_name})
+                logger.info(f"[Reminder] Lookup employee '{employee_name}': {emp}")
                 if emp and emp.get('chat_id'):
                     try:
                         await context.bot.send_message(
