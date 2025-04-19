@@ -6,7 +6,6 @@ from datetime import datetime, time
 import pytz
 import logging
 import os
-import aiohttp
 import re
 import copy
 
@@ -189,28 +188,39 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Different help message for admin vs employees
     if chat_id == YOUR_ID:
-        help_text = (
-            "🔑 *Admin Commands*\n\n"
-            "/assign \- Assign tasks to employees\n"
-            "Format: /assign employee1,employee2 task \[time\] \[priority\] \[due\_date\]\n\n"
-            "/tasks \- View and manage all active tasks\n"
-            "Format: /tasks \[task\_id\]\n\n"
-            "/clarify \- Add details to tasks\n"
-            "Format: /clarify task\_id details\n\n"
-            "/broadcast \- Send message to all employees\n"
-            "Format: /broadcast message\n\n"
-            "/list\_employees \- View all registered employees\n\n"
-            "/add\_employee \- Add a new employee\n"
-            "Format: /add\_employee name chat\_id\n\n"
-            "/remove\_employee \- Remove an employee\n"
-            "Format: /remove\_employee chat\_id\n\n"
-            "/task \- View tasks assigned to a specific employee\n"
-            "Format: /task employee\_name\n\n"
-            "/dbstatus \- Check database connection status\n\n"
-            "/help \- Show this message\n\n"
-            "*Legacy Commands* \(use /tasks instead\):\n"
-            "/done \- Same as /tasks\n"
-        )
+        help_text = r"""
+🔑 *Admin Commands*
+
+/assign - Assign tasks to employees
+Format: /assign employee1,employee2 task [time] [priority] [due_date]
+
+/tasks - View and manage all active tasks
+Format: /tasks [task_id]
+
+/clarify - Add details to tasks
+Format: /clarify task_id details
+
+/broadcast - Send message to all employees
+Format: /broadcast message
+
+/list_employees - View all registered employees
+
+/add_employee - Add a new employee
+Format: /add_employee name chat_id
+
+/remove_employee - Remove an employee
+Format: /remove_employee chat_id
+
+/task - View tasks assigned to a specific employee
+Format: /task employee_name
+
+/dbstatus - Check database connection status
+
+/help - Show this message
+
+*Legacy Commands* (use /tasks instead):
+/done - Same as /tasks
+"""
         
         # Create keyboard with admin quick actions
         keyboard = [
@@ -219,19 +229,24 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("📊 View Tasks", callback_data="cmd_tasks")]
         ]
     else:
-        help_text = (
-            "👤 *Employee Commands*\n\n"
-            "/tasks \- View your tasks and mark them as completed\n"
-            "Format: /tasks \[task\_id\]\n\n"
-            "/inquire \- Ask questions about tasks\n"
-            "Format: /inquire task\_id question\n\n"
-            "/notify \- Send notice to admin\n"
-            "Format: /notify message\n\n"
-            "/help \- Show this message\n\n"
-            "*Legacy Commands* \(use /tasks instead\):\n"
-            "/taskdone \- Same as /tasks\n"
-            "/mytasks \- Same as /tasks\n"
-        )
+        help_text = r"""
+👤 *Employee Commands*
+
+/tasks - View your tasks and mark them as completed
+Format: /tasks [task_id]
+
+/inquire - Ask questions about tasks
+Format: /inquire task_id question
+
+/notify - Send notice to admin
+Format: /notify message
+
+/help - Show this message
+
+*Legacy Commands* (use /tasks instead):
+/taskdone - Same as /tasks
+/mytasks - Same as /tasks
+"""
         
         # Create keyboard with employee quick actions
         keyboard = [
@@ -294,7 +309,7 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
         args = context.args
         if not args:
             await update.message.reply_text(
-                "❌ Usage: /assign \[employee\_names\] task \[time\] \[priority\] \[due\_date\]\n\n"
+                "❌ Usage: /assign [employee_names] task [time] [priority] [due_date]\n\n"
                 "Example: /assign shameem,rehan Check inventory 30m high tomorrow"
             )
             return
