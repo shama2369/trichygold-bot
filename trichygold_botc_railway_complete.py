@@ -8,6 +8,9 @@ import logging
 import os
 import re
 import copy
+import traceback
+from telegram import Update, ParseMode
+from telegram.error import TelegramError
 
 # Set up logging
 logging.basicConfig(
@@ -130,6 +133,26 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 logger.error(f"Failed to notify admin: {e}")
     except Exception as e:
         logger.error(f"Error in error handler: {e}")
+
+async def global_error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Log errors and send admin notifications"""
+    logger.error("Exception while handling update:", exc_info=context.error)
+    
+    if YOUR_ID:
+        tb_list = traceback.format_exception(None, context.error, context.error.__traceback__)
+        tb_string = "".join(tb_list)[:3000]  # Truncate to avoid hitting message limits
+        
+        try:
+            await context.bot.send_message(
+                chat_id=YOUR_ID,
+                text=f"⚠️ Bot Crash ⚠️\n\n"
+                     f"Update: {update}\n\n"
+                     f"Error: {context.error}\n\n"
+                     f"Traceback:\n<pre>{tb_string}</pre>",
+                parse_mode=ParseMode.HTML
+            )
+        except Exception as e:
+            logger.error(f"Failed to send error notification: {e}")
 
 # Command Handlers
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -603,6 +626,7 @@ async def main():
         
         # Error handler
         application.add_error_handler(error_handler)
+        application.add_error_handler(global_error_handler)
         
         # Log all updates for debugging
         application.add_handler(MessageHandler(filters.ALL, log_all_updates))
