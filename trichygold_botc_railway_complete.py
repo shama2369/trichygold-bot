@@ -607,6 +607,15 @@ async def main():
         # Log all updates for debugging
         application.add_handler(MessageHandler(filters.ALL, log_all_updates))
         
+        async def log_all_updates(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            """Log all incoming updates for debugging"""
+            if update.message and update.message.text:
+                logger.info(f"Received message: {update.message.text}")
+            if update.message and update.message.text and update.message.text.startswith('/'):
+                logger.info(f"Processing command: {update.message.text}")
+        
+        application.add_handler(MessageHandler(filters.ALL, log_all_updates), group=0)
+        
         # Start the bot
         logger.info("Starting bot...")
         await application.start()
