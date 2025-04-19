@@ -1,10 +1,4 @@
-telegram
 python-telegram-bot==20.8
-pytz
 pymongo[srv]==4.6.2
-python-dotenv[job-queue]
-quart
-httpx
-uvicorn
+python-dotenv
 pytz
-aiohttp
