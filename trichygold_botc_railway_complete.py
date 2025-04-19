@@ -36,8 +36,6 @@ from database import db
 from employee_handlers import add_employee_command, remove_employee_command, list_employees_command
 from test_employees import add_test_employees_command
 from button_handlers import handle_button_callback
-application = Application.builder().token(BOT_TOKEN).build()
-application.bot_data['ADMIN_ID'] = YOUR_ID
 
 # Helper functions
 async def format_task_message(task, chat_id):
@@ -589,66 +587,54 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
         logger.error(f"Error in handle_button_callback: {e}")
         await query.answer("❌ An error occurred")
 
+async def register_handlers(app: Application):
+    """Register all command handlers"""
+    # Command handlers
+    app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("test", test_command))
+    app.add_handler(CommandHandler("assign", assign_task))
+    app.add_handler(CommandHandler("tasks", tasks_command))
+    app.add_handler(CommandHandler("done", tasks_command))  # Legacy command
+    app.add_handler(CommandHandler("clarify", clarify_command))
+    app.add_handler(CommandHandler("list_employees", list_employees_command))
+    app.add_handler(CommandHandler("remove_employee", remove_employee_command))
+    app.add_handler(CommandHandler("notify", notify_command))
+    app.add_handler(CommandHandler("broadcast", broadcast_command))
+    app.add_handler(CommandHandler("task", task_command))
+    app.add_handler(CommandHandler("inquire", inquire_command))
+    app.add_handler(CommandHandler("dbstatus", db_status_command))
+    app.add_handler(CommandHandler("dbreconnect", db_reconnect_command))
+    app.add_handler(CommandHandler("dbmigrate", db_migrate_command))
+    
+    # Message handlers
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_media_message))
+    
+    # Callback query handler
+    app.add_handler(CallbackQueryHandler(handle_button_callback))
+    
+    # Error handlers
+    app.add_error_handler(global_error_handler)
+
 async def main():
     """Start the bot."""
     try:
-        # Use the global application instance instead of creating a new one
-        global application
+        # Initialize application
+        application = Application.builder().token(BOT_TOKEN).build()
         
-        # First, initialize the application
-        await application.initialize()
+        # Register handlers FIRST
+        await register_handlers(application)
         
-        logger.info("Initializing application and registering command handlers...")
-
-        # Command handlers
-        application.add_handler(CommandHandler("help", help_command))
-        application.add_handler(CommandHandler("start", start))
-        application.add_handler(CommandHandler("assign", assign_task))
-        application.add_handler(CommandHandler("tasks", tasks_command))
-        application.add_handler(CommandHandler("done", tasks_command))  # Legacy command
-        application.add_handler(CommandHandler("clarify", clarify_command))
-        application.add_handler(CommandHandler("list_employees", list_employees_command))
-        application.add_handler(CommandHandler("remove_employee", remove_employee_command))
-        application.add_handler(CommandHandler("notify", notify_command))
-        application.add_handler(CommandHandler("broadcast", broadcast_command))
-        application.add_handler(CommandHandler("task", task_command))
-        application.add_handler(CommandHandler("inquire", inquire_command))
-        application.add_handler(CommandHandler("dbstatus", db_status_command))
-        application.add_handler(CommandHandler("dbreconnect", db_reconnect_command))
-        application.add_handler(CommandHandler("dbmigrate", db_migrate_command))
-        
-        # Message handlers
-        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_media_message))
-        
-        # Callback query handler
-        application.add_handler(CallbackQueryHandler(handle_button_callback))
-        
-        # Error handler
-        application.add_error_handler(error_handler)
-        application.add_error_handler(global_error_handler)
-        
-        # Log all updates for debugging
-        application.add_handler(MessageHandler(filters.ALL, log_all_updates))
-        
-        async def log_all_updates(update: Update, context: ContextTypes.DEFAULT_TYPE):
-            """Log all incoming updates for debugging"""
-            if update.message and update.message.text:
-                logger.info(f"Received message: {update.message.text}")
-            if update.message and update.message.text and update.message.text.startswith('/'):
-                logger.info(f"Processing command: {update.message.text}")
-        
+        # Add logging handler LAST
         application.add_handler(MessageHandler(filters.ALL, log_all_updates), group=0)
         
-        # Start the bot
-        logger.info("Starting bot...")
-        await application.start()
-        
-        # Run the application in polling mode
+        # Start polling
+        logger.info("Starting polling...")
         await application.run_polling()
         
     except Exception as e:
-        logger.error(f"Error in main: {e}")
+        logger.error(f"Failed to start bot: {e}")
         raise
 
 if __name__ == '__main__':
-    application.run_polling()
+    asyncio.run(main())
