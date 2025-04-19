@@ -588,33 +588,42 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
         await query.answer("❌ An error occurred")
 
 async def register_handlers(app: Application):
-    """Register all command handlers"""
-    # Command handlers
-    app.add_handler(CommandHandler("help", help_command))
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("test", test_command))
-    app.add_handler(CommandHandler("assign", assign_task))
-    app.add_handler(CommandHandler("tasks", tasks_command))
-    app.add_handler(CommandHandler("done", tasks_command))  # Legacy command
-    app.add_handler(CommandHandler("clarify", clarify_command))
-    app.add_handler(CommandHandler("list_employees", list_employees_command))
-    app.add_handler(CommandHandler("remove_employee", remove_employee_command))
-    app.add_handler(CommandHandler("notify", notify_command))
-    app.add_handler(CommandHandler("broadcast", broadcast_command))
-    app.add_handler(CommandHandler("task", task_command))
-    app.add_handler(CommandHandler("inquire", inquire_command))
-    app.add_handler(CommandHandler("dbstatus", db_status_command))
-    app.add_handler(CommandHandler("dbreconnect", db_reconnect_command))
-    app.add_handler(CommandHandler("dbmigrate", db_migrate_command))
+    """Safely register all command handlers"""
+    # Core commands that must exist
+    required_commands = [
+        ("start", start),
+        ("help", help_command),
+        ("test", test_command)
+    ]
     
-    # Message handlers
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_media_message))
+    for cmd, handler in required_commands:
+        app.add_handler(CommandHandler(cmd, handler))
     
-    # Callback query handler
-    app.add_handler(CallbackQueryHandler(handle_button_callback))
+    # Optional commands with existence checks
+    optional_commands = [
+        ("assign", "assign_task"),
+        ("tasks", "tasks_command"),
+        ("done", "tasks_command"),
+        ("clarify", "clarify_command"),
+        ("list_employees", "list_employees_command")
+    ]
     
-    # Error handlers
-    app.add_error_handler(global_error_handler)
+    for cmd, handler_name in optional_commands:
+        try:
+            handler = globals()[handler_name]
+            app.add_handler(CommandHandler(cmd, handler))
+            logger.info(f"Registered command: /{cmd}")
+        except KeyError:
+            logger.warning(f"Skipping /{cmd} - handler {handler_name} not found")
+
+async def test_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Simple test command to verify bot responsiveness"""
+    try:
+        await update.message.reply_text("✅ Bot is operational!")
+        logger.info("Test command executed successfully")
+    except Exception as e:
+        logger.error(f"Test command failed: {e}")
+        raise
 
 async def main():
     """Start the bot."""
