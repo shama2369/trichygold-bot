@@ -625,25 +625,38 @@ async def test_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Test command failed: {e}")
         raise
 
-async def main():
-    """Start the bot."""
-    try:
-        # Initialize application
-        application = Application.builder().token(BOT_TOKEN).build()
-        
-        # Register handlers FIRST
-        await register_handlers(application)
-        
-        # Add logging handler LAST
-        application.add_handler(MessageHandler(filters.ALL, log_all_updates), group=0)
-        
-        # Start polling
-        logger.info("Starting polling...")
-        await application.run_polling()
-        
-    except Exception as e:
-        logger.error(f"Failed to start bot: {e}")
-        raise
-
 if __name__ == '__main__':
-    asyncio.run(main())
+    application = Application.builder().token(BOT_TOKEN).build()
+    
+    # Register handlers
+    import logging
+    try:
+        # Core commands that must exist
+        application.add_handler(CommandHandler("start", start))
+        application.add_handler(CommandHandler("help", help_command))
+        application.add_handler(CommandHandler("test", test_command))
+        
+        # Optional commands with existence checks
+        optional_commands = [
+            ("assign", "assign_task"),
+            ("tasks", "tasks_command"),
+            ("done", "tasks_command"),
+            ("clarify", "clarify_command"),
+            ("list_employees", "list_employees_command")
+        ]
+        for cmd, handler_name in optional_commands:
+            try:
+                handler = globals()[handler_name]
+                application.add_handler(CommandHandler(cmd, handler))
+                logger.info(f"Registered command: /{cmd}")
+            except KeyError:
+                logger.warning(f"Skipping /{cmd} - handler {handler_name} not found")
+        # Error handler
+        application.add_error_handler(global_error_handler)
+        # Add logging handler
+        application.add_handler(MessageHandler(filters.ALL, log_all_updates), group=0)
+        logger.info("Starting polling...")
+        application.run_polling()
+    except Exception as e:
+        logger.error(f"Bot crashed: {e}")
+        raise
