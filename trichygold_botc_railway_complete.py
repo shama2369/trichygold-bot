@@ -669,8 +669,6 @@ async def main():
     application.add_handler(MessageHandler(filters.ALL, log_all_updates), group=0)
 
     logger.info("Initializing application and starting polling...")
-    await application.initialize()
-    await application.start()
     await application.run_polling()
 
 if __name__ == '__main__':
