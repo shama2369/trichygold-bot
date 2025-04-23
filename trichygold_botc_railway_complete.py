@@ -502,8 +502,13 @@ async def handle_task_completion(update: Update, context: ContextTypes.DEFAULT_T
             chat_id = str(update.message.chat_id)
             message_obj = update.message
         elif hasattr(update, 'callback_query') and update.callback_query is not None:
-            chat_id = str(update.callback_query.message.chat_id)
-            message_obj = update.callback_query.message
+            if update.callback_query.message is not None:
+                chat_id = str(update.callback_query.message.chat_id)
+                message_obj = update.callback_query.message
+            else:
+                logger.error("Callback query has no associated message (possibly message was deleted or callback is stale).")
+                await update.callback_query.answer("❌ This button is no longer valid or the message was deleted.")
+                return
         else:
             logger.error("No message or callback_query.message found in update!")
             return
