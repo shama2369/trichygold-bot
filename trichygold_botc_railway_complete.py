@@ -625,9 +625,7 @@ async def test_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Test command failed: {e}")
         raise
 
-async def main():
-    """Start the bot with all handlers and polling (Railway deployment)"""
-    global application
+if __name__ == '__main__':
     application = Application.builder().token(BOT_TOKEN).build()
 
     # Set admin ID in bot_data for handlers
@@ -669,12 +667,4 @@ async def main():
     application.add_handler(MessageHandler(filters.ALL, log_all_updates), group=0)
 
     logger.info("Initializing application and starting polling...")
-    await application.run_polling()
-
-if __name__ == '__main__':
-    import asyncio
-    try:
-        asyncio.run(main())
-    except Exception as e:
-        logger.error(f"Bot crashed: {e}")
-        raise
+    application.run_polling()
