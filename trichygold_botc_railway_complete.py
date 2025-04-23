@@ -495,42 +495,49 @@ async def tasks_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ An error occurred while fetching tasks.")
 
 async def handle_task_completion(update: Update, context: ContextTypes.DEFAULT_TYPE, task_id: int, is_admin: bool, employee_name: str = None):
-    """Handle task completion for both admin and employees"""
+    """Handle task completion for both admin and employees. Handles both command and callback contexts safely."""
     try:
-        chat_id = str(update.message.chat_id)
-        
+        # Determine chat_id and message object depending on context
+        if hasattr(update, 'message') and update.message is not None:
+            chat_id = str(update.message.chat_id)
+            message_obj = update.message
+        elif hasattr(update, 'callback_query') and update.callback_query is not None:
+            chat_id = str(update.callback_query.message.chat_id)
+            message_obj = update.callback_query.message
+        else:
+            logger.error("No message or callback_query.message found in update!")
+            return
+
         # Get task from database
         task_info = db.get_task(task_id)
-        
         if not task_info:
-            await update.message.reply_text(f"❌ Task #{task_id} not found!")
+            await message_obj.reply_text(f"❌ Task #{task_id} not found!")
             return
-        
+
         # Allow admin to mark any task as done, but employees can only mark their own tasks
         if not is_admin:
             if chat_id not in task_info.get('assigned_to', []):
-                await update.message.reply_text("❌ You can only mark your own tasks as done!")
+                await message_obj.reply_text("❌ You can only mark your own tasks as done!")
                 return
-        
+
         # Update task status
         updated_task = db.update_task_status(
             task_id=task_id,
             status='completed',
             completed_by=employee_name or 'Admin'
         )
-        
         if not updated_task:
-            await update.message.reply_text(f"❌ Failed to mark Task #{task_id} as completed!")
+            await message_obj.reply_text(f"❌ Failed to mark Task #{task_id} as completed!")
             return
-        
+
         # Send confirmation to user
-        await update.message.reply_text(
+        await message_obj.reply_text(
             f"✅ Task #{task_id} marked as completed!\n"
             f"• Task: {task_info['task']}\n"
             f"• Completed by: {employee_name or 'Admin'}\n"
             f"• Completed at: {datetime.now().strftime('%Y-%m-%d %H:%M')}"
         )
-        
+
         # Notify admin if employee completed the task
         if not is_admin:
             try:
@@ -542,10 +549,9 @@ async def handle_task_completion(update: Update, context: ContextTypes.DEFAULT_T
                 )
             except Exception as e:
                 logger.error(f"Failed to notify admin: {e}")
-        
+
         # Refresh active tasks for all employees
         if is_admin:
-            # Get all employees assigned to this task
             assigned_ids = task_info.get('assigned_to', [])
             for emp_id in assigned_ids:
                 try:
@@ -555,7 +561,15 @@ async def handle_task_completion(update: Update, context: ContextTypes.DEFAULT_T
 
     except Exception as e:
         logger.error(f"Error in handle_task_completion: {e}")
-        await update.message.reply_text("❌ Failed to process command. Please try again.")
+        # Try to reply to the user in the safest way
+        try:
+            if 'message_obj' in locals():
+                await message_obj.reply_text("❌ Failed to process command. Please try again.")
+            elif hasattr(update, 'callback_query') and update.callback_query is not None:
+                await update.callback_query.answer("❌ Failed to process command.")
+        except Exception as ex:
+            logger.error(f"Failed to send error message: {ex}")
+
 
 async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle button callbacks"""
@@ -576,7 +590,7 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
                 if employee:
                     employee_name = employee.get("name")
             
-            # Handle task completion
+            # Handle task completion (supports both command and callback contexts)
             await handle_task_completion(update, context, task_id, chat_id == YOUR_ID, employee_name)
             
         elif data == 'cmd_help':
