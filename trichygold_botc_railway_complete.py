@@ -685,5 +685,14 @@ if __name__ == '__main__':
     # Log all updates for debugging
     application.add_handler(MessageHandler(filters.ALL, log_all_updates), group=0)
 
-    logger.info("Initializing application and starting polling...")
-    application.run_polling()
+    WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # Set this in Railway to your public HTTPS endpoint, e.g. https://your-app.up.railway.app/webhook
+
+    if not WEBHOOK_URL:
+        logger.error("WEBHOOK_URL environment variable not set! Set it to your Railway public HTTPS endpoint.")
+    else:
+        logger.info(f"Starting bot with webhook at: {WEBHOOK_URL}")
+        application.run_webhook(
+            listen="0.0.0.0",
+            port=int(os.getenv("PORT", 8080)),
+            webhook_url=WEBHOOK_URL
+        )
