@@ -207,8 +207,8 @@ if __name__ == "__main__":
         # Button callback handler
         application.add_handler(CallbackQueryHandler(handle_button_callback))
         # Error handler
-        application.add_handler(global_error_handler)
-        # Log all updates for debugging
+        application.add_error_handler(global_error_handler)
+                # Log all updates for debugging
         application.add_handler(MessageHandler(filters.ALL, log_all_updates), group=0)
         logger.info("All handlers registered successfully!")
 
