@@ -164,6 +164,7 @@ async def global_error_handler(update: Update, context: ContextTypes.DEFAULT_TYP
 
 async def log_all_updates(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"Received update: {update}")
+
 if __name__ == "__main__":
     logger.info("Entering main block...")
     try:
@@ -208,7 +209,7 @@ if __name__ == "__main__":
         application.add_handler(CallbackQueryHandler(handle_button_callback))
         # Error handler
         application.add_error_handler(global_error_handler)
-                # Log all updates for debugging
+        # Log all updates for debugging
         application.add_handler(MessageHandler(filters.ALL, log_all_updates), group=0)
         logger.info("All handlers registered successfully!")
 
@@ -228,7 +229,8 @@ if __name__ == "__main__":
                 return response
             return middleware
 
-        app = application.bot.create_wsgi_app()
+        # Corrected: Use application.create_wsgi_app() instead of application.bot.create_wsgi_app()
+        app = application.create_wsgi_app()
         app = web.Application(middlewares=[debug_middleware])(app)
 
         # Start the webhook server
