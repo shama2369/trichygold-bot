@@ -2,3 +2,4 @@ python-telegram-bot[webhooks]==20.8
 pymongo[srv]==4.6.2
 python-dotenv
 pytz
+aiohttp==3.9.5
