@@ -164,7 +164,6 @@ async def global_error_handler(update: Update, context: ContextTypes.DEFAULT_TYP
 
 async def log_all_updates(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"Received update: {update}")
-
 if __name__ == "__main__":
     logger.info("Entering main block...")
     try:
@@ -208,7 +207,7 @@ if __name__ == "__main__":
         # Button callback handler
         application.add_handler(CallbackQueryHandler(handle_button_callback))
         # Error handler
-        application.add_error_handler(global_error_handler)
+        application.add_handler(global_error_handler)
         # Log all updates for debugging
         application.add_handler(MessageHandler(filters.ALL, log_all_updates), group=0)
         logger.info("All handlers registered successfully!")
@@ -219,6 +218,19 @@ if __name__ == "__main__":
 
         logger.info(f"Starting bot in webhook mode at: {WEBHOOK_URL}")
         
+        # Add debug logging for incoming webhook requests
+        from aiohttp import web
+        async def debug_middleware(app, handler):
+            async def middleware(request):
+                logger.info(f"Incoming request: {request.method} {request.path} {await request.text()}")
+                response = await handler(request)
+                logger.info(f"Response: {response.status}")
+                return response
+            return middleware
+
+        app = application.bot.create_wsgi_app()
+        app = web.Application(middlewares=[debug_middleware])(app)
+
         # Start the webhook server
         logger.info(f"Starting webhook server on port {PORT}...")
         application.run_webhook(
