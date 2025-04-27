@@ -219,21 +219,7 @@ if __name__ == "__main__":
 
         logger.info(f"Starting bot in webhook mode at: {WEBHOOK_URL}")
         
-        # Add debug logging for incoming webhook requests
-        from aiohttp import web
-        async def debug_middleware(app, handler):
-            async def middleware(request):
-                logger.info(f"Incoming request: {request.method} {request.path} {await request.text()}")
-                response = await handler(request)
-                logger.info(f"Response: {response.status}")
-                return response
-            return middleware
-
-        # Corrected: Use application.create_wsgi_app() instead of application.bot.create_wsgi_app()
-        app = application.create_wsgi_app()
-        app = web.Application(middlewares=[debug_middleware])(app)
-
-        # Start the webhook server
+        # Start the webhook server (no middleware needed)
         logger.info(f"Starting webhook server on port {PORT}...")
         application.run_webhook(
             listen="0.0.0.0",
