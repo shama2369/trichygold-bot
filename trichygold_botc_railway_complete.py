@@ -645,21 +645,22 @@ async def test_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         raise
 
 if __name__ == '__main__':
-    application = Application.builder().token(BOT_TOKEN).build()
+    try:
+        application = Application.builder().token(BOT_TOKEN).build()
 
-    # Set admin ID in bot_data for handlers
-    application.bot_data['ADMIN_ID'] = YOUR_ID
+        # Set admin ID in bot_data for handlers
+        application.bot_data['ADMIN_ID'] = YOUR_ID
 
-    # Register all handlers (admin, employee, test employee, button callbacks)
-    # Core commands
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("help", help_command))
-    application.add_handler(CommandHandler("test", test_command))
-    
-    # Employee management handlers
-    application.add_handler(CommandHandler("add_employee", add_employee_command))
-    application.add_handler(CommandHandler("remove_employee", remove_employee_command))
-    application.add_handler(CommandHandler("list_employees", list_employees_command))
+        # Register all handlers (admin, employee, test employee, button callbacks)
+        # Core commands
+        application.add_handler(CommandHandler("start", start))
+        application.add_handler(CommandHandler("help", help_command))
+        application.add_handler(CommandHandler("test", test_command))
+        
+        # Employee management handlers
+        application.add_handler(CommandHandler("add_employee", add_employee_command))
+        application.add_handler(CommandHandler("remove_employee", remove_employee_command))
+        application.add_handler(CommandHandler("list_employees", list_employees_command))
     application.add_handler(CommandHandler("add_test_employees", add_test_employees_command))
     
     # Main bot commands (assign, tasks, done, clarify, etc.)
