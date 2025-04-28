@@ -661,25 +661,25 @@ if __name__ == '__main__':
         application.add_handler(CommandHandler("add_employee", add_employee_command))
         application.add_handler(CommandHandler("remove_employee", remove_employee_command))
         application.add_handler(CommandHandler("list_employees", list_employees_command))
-    application.add_handler(CommandHandler("add_test_employees", add_test_employees_command))
-    
-    # Main bot commands (assign, tasks, done, clarify, etc.)
-    optional_commands = [
-        ("assign", "assign_task"),
-        ("tasks", "tasks_command"),
-        ("done", "tasks_command"),
-        ("clarify", "clarify_command"),
-        ("list_employees", "list_employees_command")
-    ]
-    for cmd, handler_name in optional_commands:
-        try:
-            handler = globals()[handler_name]
-            application.add_handler(CommandHandler(cmd, handler))
-            logger.info(f"Registered command: /{cmd}")
-        except KeyError:
-            logger.warning(f"Skipping /{cmd} - handler {handler_name} not found")
+        application.add_handler(CommandHandler("add_test_employees", add_test_employees_command))
+        
+        # Main bot commands (assign, tasks, done, clarify, etc.)
+        optional_commands = [
+            ("assign", "assign_task"),
+            ("tasks", "tasks_command"),
+            ("done", "tasks_command"),
+            ("clarify", "clarify_command"),
+            ("list_employees", "list_employees_command")
+        ]
+        for cmd, handler_name in optional_commands:
+            try:
+                handler = globals()[handler_name]
+                application.add_handler(CommandHandler(cmd, handler))
+                logger.info(f"Registered command: /{cmd}")
+            except KeyError:
+                logger.warning(f"Skipping /{cmd} - handler {handler_name} not found")
 
-# Button callback handler
+                # Button callback handler
         application.add_handler(CallbackQueryHandler(handle_button_callback))
         # Error handler
         application.add_error_handler(global_error_handler)
