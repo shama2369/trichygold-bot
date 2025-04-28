@@ -678,21 +678,31 @@ if __name__ == '__main__':
         except KeyError:
             logger.warning(f"Skipping /{cmd} - handler {handler_name} not found")
 
-    # Button callback handler
-    application.add_handler(CallbackQueryHandler(handle_button_callback))
-    # Error handler
-    application.add_error_handler(global_error_handler)
-    # Log all updates for debugging
-    application.add_handler(MessageHandler(filters.ALL, log_all_updates), group=0)
+# Button callback handler
+        application.add_handler(CallbackQueryHandler(handle_button_callback))
+        # Error handler
+        application.add_error_handler(global_error_handler)
+        # Log all updates for debugging
+        application.add_handler(MessageHandler(filters.ALL, log_all_updates), group=0)
+        logger.info("All handlers registered successfully!")
 
-    WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # Set this in Railway to your public HTTPS endpoint, e.g. https://your-app.up.railway.app/webhook
+        # Webhook setup
+        PORT = int(os.getenv("PORT", 8080))
+        logger.info(f"Using port: {PORT}")
 
-    if not WEBHOOK_URL:
-        logger.error("WEBHOOK_URL environment variable not set! Set it to your Railway public HTTPS endpoint.")
-    else:
-        logger.info(f"Starting bot with webhook at: {WEBHOOK_URL}")
+        logger.info(f"Starting bot in webhook mode at: {WEBHOOK_URL}")
+        
+        # Start the webhook server (no middleware needed)
+        logger.info(f"Starting webhook server on port {PORT}...")
         application.run_webhook(
             listen="0.0.0.0",
-            port=int(os.getenv("PORT", 8080)),
+            port=PORT,
+            url_path="/webhook",
             webhook_url=WEBHOOK_URL
         )
+        logger.info("Webhook server started successfully!")
+    except Exception as e:
+        logger.error(f"Error in main block: {str(e)}")
+        raise
+    finally:
+        logger.info("Application is shutting down...")
