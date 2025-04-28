@@ -31,6 +31,8 @@ logger.info(f"Using bot token: {token_preview}")
 YOUR_ID = os.getenv('ADMIN_ID', '1341853859')  # Default to shameem's ID
 logger.info(f"Admin ID set to: {YOUR_ID}")
 
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+
 # Initialize database and bot
 from database import db
 from employee_handlers import add_employee_command, remove_employee_command, list_employees_command
