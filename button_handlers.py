@@ -41,6 +41,18 @@ async def process_button_callback(query, bot):
     try:
         data = query.data
         chat_id = str(query.from_user.id)
+
+        # Employee menu aliases
+        if data == 'cmd_mytasks':
+            data = 'cmd_tasks'
+        elif data == 'cmd_notify':
+            await query.message.reply_text(
+                "📢 *Notify Admin*\n\n"
+                "Use: `/notify <your message>`\n\n"
+                "Example: `/notify Need help with task 3`",
+                parse_mode=ParseMode.MARKDOWN,
+            )
+            return
         
         # Log the button press
         logger.info(f"Processing button callback: {data} from user {chat_id}")
@@ -461,119 +473,6 @@ async def process_button_callback(query, bot):
                 f"• Files/documents\n"
                 f"• Photos"
             )
-            
-        # Handle command buttons from welcome message
-        elif data.startswith('cmd_'):
-            command = data.replace('cmd_', '')
-            
-            # Show "tasks" instead of "done" for the View Tasks button
-            if command == "done":
-                command = "tasks"
-                
-            await query.answer(f"Running command: {command}")
-            
-            # Execute the appropriate command directly with immediate responses
-            if data == 'cmd_assign':
-                # Show assign task command format
-                await query.message.reply_text(
-                    "📝 *Task Assignment Command*\n\n"
-                    "`/assign employee1,employee2 <task> [time] [p:priority] [due:date]`\n\n"
-                    "*Required Parameters:*\n"
-                    "• `employee1,employee2` - Comma-separated list of employees\n"
-                    "• `<task>` - Task description\n\n"
-                    "*Optional Parameters:*\n"
-                    "• *Time:* `30m` (30 min), `2h` (2 hours), `1d` (1 day)\n"
-                    "• *Priority:* `p:high` 🔴, `p:medium` 🟡, `p:low` 🟢\n"
-                    "• *Due Date:* `due:today`, `due:tomorrow`, `due:nextweek`, `due:YYYY-MM-DD`\n\n"
-                    "*Examples:*\n"
-                    "• `/assign rehan,shameem Check inventory 30m p:high due:tomorrow`\n"
-                    "• `/assign rehan Daily report 1d p:medium due:2025-04-20`",
-                    parse_mode=ParseMode.MARKDOWN
-                )
-            elif data == 'cmd_done' or data == 'cmd_tasks':
-                # Show active tasks directly
-                await query.message.reply_text("📋 *Active Tasks*\n\nFetching your tasks...", parse_mode=ParseMode.MARKDOWN)
-                
-                # For tasks, we'll implement a direct response instead of calling the command
-                try:
-                    # Send a simple response with sample tasks
-                    message = "📋 *Active Tasks*\n\n"
-                    message += "*Task #1*\n"
-                    message += "📌 Check inventory\n"
-                    message += "👤 Assigned to: Rehan, Shameem\n\n"
-                    
-                    message += "*Task #2*\n"
-                    message += "📌 Clean storage area\n"
-                    message += "👤 Assigned to: Rehan\n\n"
-                    
-                    # Add task action buttons
-                    keyboard = [
-                        [InlineKeyboardButton("✅ Mark Task #1 Complete", callback_data="taskdone_1")],
-                        [InlineKeyboardButton("✅ Mark Task #2 Complete", callback_data="taskdone_2")],
-                        [InlineKeyboardButton("🔄 Refresh Tasks", callback_data="cmd_tasks")]
-                    ]
-                    
-                    await query.message.reply_text(
-                        message, 
-                        parse_mode=ParseMode.MARKDOWN,
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
-                except Exception as e:
-                    logger.error(f"Error fetching tasks: {e}")
-                    await query.message.reply_text(f"❌ Error fetching tasks: {str(e)}")
-            elif data == 'cmd_help':
-                # Direct help message
-                help_text = (
-                    "🔑 *TrichyGold Bot Commands*\n\n"
-                    "/start - Start the bot\n"
-                    "/help - Show this help message\n"
-                    "/assign - Assign tasks to employees\n"
-                    "/tasks - View and manage tasks\n"
-                    "/clarify - Add details to tasks\n"
-                    "/broadcast - Send message to all employees\n"
-                    "/list_employees - List all registered employees\n"
-                )
-                await query.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN)
-            elif data == 'cmd_inquire':
-                # Show inquire command format (now called 'Clarify Tasks' in employee menu)
-                await query.message.reply_text(
-                    "💬 *Clarify Task Details*\n\n"
-                    "`/inquire <task_id> <your question>`\n\n"
-                    "*Example:*\n"
-                    "`/inquire 5 What is the deadline for this task?`\n\n"
-                    "Your question will be sent to the admin.",
-                    parse_mode=ParseMode.MARKDOWN
-                )
-            elif data == 'cmd_broadcast':
-                await query.message.reply_text(
-                    "📢 *Broadcast Message*\n\n"
-                    "Use /broadcast <message>\n\n"
-                    "Example: /broadcast Meeting at 3pm today",
-                    parse_mode=ParseMode.MARKDOWN
-                )
-            elif data == 'cmd_list_employees':
-                await query.answer("Fetching employee list...")
-                
-                # Direct employee listing
-                try:
-                    # Send a simple response instead of querying the database
-                    await query.message.reply_text("👥 *Employee List*\n\n1. 👤 *Rehan* (ID: `123456789`)\n2. 👤 *Shameem* (ID: `987654321`)\n", parse_mode=ParseMode.MARKDOWN)
-                    return
-                    
-                    # The following code is commented out to avoid database issues
-                    # if not db.is_connected():
-                    #    db.connect()
-                    #    if not db.is_connected():
-                    #        await query.message.reply_text("❌ Database connection failed. Please try again later.")
-                    #        return
-                            
-                    # Get employees from database
-                    # employees = list(db.employees.find())
-                    
-                    # This section is now handled by the direct response above
-                except Exception as e:
-                    logger.error(f"Error listing employees: {e}")
-                    await query.message.reply_text(f"❌ Error listing employees: {str(e)}")
             
         # Handle add employee info
         elif data == 'add_employee_info':

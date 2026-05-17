@@ -20,9 +20,29 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
+def get_mongodb_uri() -> Optional[str]:
+    """Read MongoDB URI from env (MONGODB_URI preferred; MONGO_URI alias)."""
+    uri = (
+        os.getenv('MONGODB_URI')
+        or os.getenv('MONGO_URI')
+        or os.getenv('MONGO_URL')
+    )
+    if not uri:
+        return None
+    uri = uri.strip().strip('"').strip("'")
+    if not uri.startswith(('mongodb://', 'mongodb+srv://')):
+        logger.error(
+            "Invalid MongoDB URI: must start with 'mongodb://' or 'mongodb+srv://'. "
+            "Set MONGODB_URI on Railway to your full Atlas connection string."
+        )
+        return None
+    return uri
+
+
 class MongoDB:
     def __init__(self, uri=None):
-        self.uri = uri or os.getenv('MONGODB_URI')
+        self.uri = uri or get_mongodb_uri()
         self.client = None
         self.db = None
         self.tasks = None
@@ -51,11 +71,12 @@ class MongoDB:
         """Connect to MongoDB database"""
         try:
             # Get MongoDB URI from environment variables or constructor
-            mongodb_uri = self.uri
+            mongodb_uri = self.uri or get_mongodb_uri()
+            self.uri = mongodb_uri
             
             if not mongodb_uri:
-                logger.error("MONGODB_URI environment variable not set")
-                self.connection_status["error"] = "MONGODB_URI environment variable not set"
+                logger.error("MONGODB_URI (or MONGO_URI) environment variable not set")
+                self.connection_status["error"] = "MONGODB_URI (or MONGO_URI) environment variable not set"
                 self.connection_status["status"] = "error"
                 return False
                 
@@ -152,11 +173,12 @@ class MongoDB:
         """Attempt to connect to MongoDB with retry logic"""
         try:
             # Get MongoDB URI from environment variables
-            mongodb_uri = os.getenv('MONGODB_URI')
+            mongodb_uri = get_mongodb_uri()
+            self.uri = mongodb_uri
             
             if not mongodb_uri:
-                logger.error("MONGODB_URI environment variable not set")
-                self.connection_error = "MONGODB_URI environment variable not set"
+                logger.error("MONGODB_URI (or MONGO_URI) environment variable not set")
+                self.connection_error = "MONGODB_URI (or MONGO_URI) environment variable not set"
                 # MongoDB connection failed, but we'll try again later
                 
                 # Update connection status
@@ -639,30 +661,11 @@ class MongoDB:
     
     def is_connected(self) -> bool:
         """Check if MongoDB is connected and operational"""
-        if False:  # MongoDB only mode
-            # Check if we should attempt reconnection
-            current_time = datetime.now()
-            if (self.last_connection_attempt is None or 
-                (current_time - self.last_connection_attempt).total_seconds() > self.reconnect_delay * (2 ** min(self.reconnect_attempts, 5))):
-                
-                # Exponential backoff for reconnection attempts
-                if self.reconnect_attempts < self.max_reconnect_attempts:
-                    logger.info(f"Attempting to reconnect to MongoDB (attempt {self.reconnect_attempts + 1}/{self.max_reconnect_attempts})")
-                    self.reconnect_attempts += 1
-                    self.connection_status["reconnect_attempts"] = self.reconnect_attempts
-                    
-                    # Try to reconnect
-                    if self._connect_to_mongodb():
-                        logger.info("Successfully reconnected to MongoDB")
-                        return True
-                else:
-                    # Reset reconnect attempts counter after max attempts to allow future retries
-                    if (current_time - self.last_connection_attempt).total_seconds() > 300:  # 5 minutes
-                        self.reconnect_attempts = 0
-                        self.connection_status["reconnect_attempts"] = 0
-            
+        if self.client is None or self.db is None:
+            if self.connect():
+                return True
             return False
-            
+
         try:
             # Try to ping the database
             ping_result = self.client.admin.command('ping')

@@ -10,6 +10,7 @@ import re
 import copy
 import traceback
 from telegram.error import TelegramError
+from typing import Optional
 
 # Set up logging
 logging.basicConfig(
@@ -31,13 +32,35 @@ logger.info(f"Using bot token: {token_preview}")
 YOUR_ID = os.getenv('ADMIN_ID', '1341853859')  # Default to shameem's ID
 logger.info(f"Admin ID set to: {YOUR_ID}")
 
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+def _normalize_webhook_url(url: Optional[str]) -> Optional[str]:
+    if not url:
+        return None
+    url = url.strip()
+    if not url.startswith("http://") and not url.startswith("https://"):
+        url = f"https://{url}"
+    if not url.rstrip("/").endswith("/webhook"):
+        url = url.rstrip("/") + "/webhook"
+    return url
+
+
+WEBHOOK_URL = _normalize_webhook_url(os.getenv("WEBHOOK_URL"))
+if not WEBHOOK_URL:
+    logger.error("WEBHOOK_URL environment variable not set!")
+else:
+    logger.info("WEBHOOK_URL is set for Railway webhook mode")
 
 # Initialize database and bot
-from database import db
+from database import db, get_mongodb_uri
+
+if not get_mongodb_uri():
+    logger.error(
+        "MONGODB_URI not set or invalid — use full string: mongodb+srv://user:pass@cluster.mongodb.net/..."
+    )
+elif not db.is_connected():
+    logger.error("MongoDB client failed to connect — check MONGODB_URI and Atlas network access")
 from employee_handlers import add_employee_command, remove_employee_command, list_employees_command
 from test_employees import add_test_employees_command
-from button_handlers import handle_button_callback
+from button_handlers import handle_button_callback as button_handlers_callback
 
 # Helper functions
 async def format_task_message(task, chat_id):
@@ -126,7 +149,7 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await context.bot.send_message(
                     chat_id=YOUR_ID,
                     text=error_msg,
-                    parse_mode=ParseMode
+                    parse_mode=ParseMode.HTML
                 )
             except Exception as e:
                 logger.error(f"Failed to notify admin: {e}")
@@ -204,9 +227,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(message, reply_markup=reply_markup)
 
+def _chat_id_from_update(update: Update) -> str:
+    if update.callback_query:
+        return str(update.callback_query.from_user.id)
+    if update.message:
+        return str(update.message.chat_id)
+    if update.effective_user:
+        return str(update.effective_user.id)
+    raise ValueError("Cannot determine chat id from update")
+
+
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send a message when the command /help is issued."""
-    chat_id = str(update.message.chat_id)
+    chat_id = _chat_id_from_update(update)
     
     # Different help message for admin vs employees
     if chat_id == YOUR_ID:
@@ -278,7 +311,14 @@ Format: /notify message
         ]
     
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text(help_text, reply_markup=reply_markup, parse_mode=ParseMode)
+    target = update.effective_message
+    if not target:
+        return
+    await target.reply_text(
+        help_text,
+        reply_markup=reply_markup,
+        parse_mode=ParseMode.MARKDOWN,
+    )
 
 # Initialize employees directly in MongoDB
 def initialize_employees_in_mongodb():
@@ -579,34 +619,8 @@ async def handle_task_completion(update: Update, context: ContextTypes.DEFAULT_T
 
 
 async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle button callbacks"""
-    try:
-        query = update.callback_query
-        data = query.data
-        chat_id = str(update.callback_query.from_user.id)
-        
-        # Handle task action buttons
-        if data.startswith('taskdone_'):
-            task_id = int(data.split('_')[1])
-            await query.answer()
-            
-            # Get employee name for non-admin users
-            employee_name = None
-            if chat_id != YOUR_ID:
-                employee = db.employees.find_one({"chat_id": chat_id})
-                if employee:
-                    employee_name = employee.get("name")
-            
-            # Handle task completion (supports both command and callback contexts)
-            await handle_task_completion(update, context, task_id, chat_id == YOUR_ID, employee_name)
-            
-        elif data == 'cmd_help':
-            await help_command(update, context)
-            await query.answer()
-            
-    except Exception as e:
-        logger.error(f"Error in handle_button_callback: {e}")
-        await query.answer("❌ An error occurred")
+    """Handle inline keyboard presses (delegates to button_handlers)."""
+    await button_handlers_callback(update, context)
 
 async def register_handlers(app: Application):
     """Safely register all command handlers"""
