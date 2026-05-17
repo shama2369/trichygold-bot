@@ -12,6 +12,26 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+DB_UNAVAILABLE_MSG = (
+    "⚠️ *Database not connected*\n\n"
+    "Set **MONGODB_URI** on Railway to your full Atlas string:\n"
+    "`mongodb+srv://user:pass@cluster.mongodb.net/trichygold`\n\n"
+    "Then redeploy the service."
+)
+
+
+def _require_db(query) -> bool:
+    """Return True if DB is ready; otherwise notify the user."""
+    if db.ensure_ready():
+        return True
+    logger.error("MongoDB not ready — check MONGODB_URI on Railway")
+    return False
+
+
+async def _reply_db_down(query) -> None:
+    await query.message.reply_text(DB_UNAVAILABLE_MSG, parse_mode=ParseMode.MARKDOWN)
+
+
 async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle button callbacks through the regular handler system"""
     query = update.callback_query
@@ -32,7 +52,8 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
 
 def get_employee_name(chat_id):
     """Helper function to get employee name by chat_id from the database."""
-    from database import db
+    if not db.ensure_ready():
+        return None
     emp = db.employees.find_one({"chat_id": str(chat_id)})
     return emp.get('name') if emp else None
 
@@ -62,6 +83,19 @@ async def process_button_callback(query, bot):
         YOUR_ID = os.getenv('ADMIN_ID', '1341853859')
         
         logger.info(f"Button callback received: {data} from user {chat_id}")
+
+        needs_db = (
+            data in ('cmd_list_employees', 'cmd_assign', 'cmd_tasks', 'cmd_done')
+            or data.startswith('taskdone_')
+            or data.startswith('remove_employee_')
+            or data.startswith('confirm_remove_')
+            or data.startswith('delete_task_')
+            or data.startswith('confirm_delete_task_')
+            or data == 'add_test_employees'
+        )
+        if needs_db and not _require_db(query):
+            await _reply_db_down(query)
+            return
         
         # Handle command buttons
         if data == 'cmd_help':

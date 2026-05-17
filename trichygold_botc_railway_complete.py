@@ -56,7 +56,7 @@ if not get_mongodb_uri():
     logger.error(
         "MONGODB_URI not set or invalid — use full string: mongodb+srv://user:pass@cluster.mongodb.net/..."
     )
-elif not db.is_connected():
+elif not db.ensure_ready():
     logger.error("MongoDB client failed to connect — check MONGODB_URI and Atlas network access")
 from employee_handlers import add_employee_command, remove_employee_command, list_employees_command
 from test_employees import add_test_employees_command

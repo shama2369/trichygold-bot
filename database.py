@@ -40,6 +40,23 @@ def get_mongodb_uri() -> Optional[str]:
     return uri
 
 
+def _encode_mongodb_uri(mongodb_uri: str) -> str:
+    """URL-encode credentials in a MongoDB connection string."""
+    if '@' not in mongodb_uri:
+        return mongodb_uri
+    try:
+        prefix, rest = mongodb_uri.split('://', 1)
+        auth_part, host_part = rest.split('@', 1)
+        if ':' in auth_part:
+            username, password = auth_part.split(':', 1)
+            encoded_username = urllib.parse.quote_plus(username)
+            encoded_password = urllib.parse.quote_plus(password)
+            return f"{prefix}://{encoded_username}:{encoded_password}@{host_part}"
+    except Exception as e:
+        logger.warning(f"Failed to encode URI components: {e}")
+    return mongodb_uri
+
+
 class MongoDB:
     def __init__(self, uri=None):
         self.uri = uri or get_mongodb_uri()
@@ -67,6 +84,31 @@ class MongoDB:
         # Attempt initial connection
         self.connect()
 
+    def _init_collections(self) -> None:
+        """Bind collection handles after a successful connection."""
+        if self.db is None:
+            return
+        self.tasks = self.db.tasks
+        self.employees = self.db.employees
+        self.inquiries = self.db.inquiries
+        self.notifications = self.db.notifications
+        self.messages = self.db.messages
+
+    def ensure_ready(self) -> bool:
+        """Ensure MongoDB is connected and collection handles exist."""
+        if self.employees is not None and self.tasks is not None:
+            try:
+                self.db.command('ping')
+                return True
+            except Exception:
+                pass
+        if self.is_connected():
+            self._init_collections()
+            return self.employees is not None and self.tasks is not None
+        if self.connect():
+            return self.employees is not None and self.tasks is not None
+        return False
+
     def connect(self):
         """Connect to MongoDB database"""
         try:
@@ -79,22 +121,26 @@ class MongoDB:
                 self.connection_status["error"] = "MONGODB_URI (or MONGO_URI) environment variable not set"
                 self.connection_status["status"] = "error"
                 return False
+
+            mongodb_uri = _encode_mongodb_uri(mongodb_uri)
+            self.uri = mongodb_uri
                 
             # Log URI components (without credentials) for debugging
+            uri_parts = None
             try:
-                import re  # Import re again to ensure it's available in this scope
                 uri_parts = re.match(r'mongodb(?:\+srv)?://(?:.*@)?([^/]+)(?:/([^?]+))?', mongodb_uri)
                 if uri_parts:
-                    logger.info(f"URI components have been properly URL-encoded")
+                    logger.info("URI components have been properly URL-encoded")
             except Exception as e:
                 logger.error(f"Error parsing URI: {e}")
-                uri_parts = None
                 
-            # Set connection timeout options
+            # Set connection timeout options (tlsCAFile required for Atlas on Railway)
             client_options = {
+                'tlsCAFile': certifi.where(),
                 'connectTimeoutMS': 30000,
                 'socketTimeoutMS': 30000,
-                'serverSelectionTimeoutMS': 30000
+                'serverSelectionTimeoutMS': 30000,
+                'retryWrites': True,
             }
             
             logger.info("Attempting to connect to MongoDB...")
@@ -128,12 +174,7 @@ class MongoDB:
             server_info = self.client.server_info()
             logger.info(f"Successfully connected to MongoDB. Server version: {server_info.get('version')}")
             
-            # Initialize collections
-            self.tasks = self.db.tasks
-            self.employees = self.db.employees
-            self.inquiries = self.db.inquiries
-            self.notifications = self.db.notifications
-            self.messages = self.db.messages
+            self._init_collections()
             
             # Update connection status
             self.connection_status["status"] = "connected"
@@ -154,19 +195,6 @@ class MongoDB:
             self.connection_status["error"] = error_message
             self.connection_status["last_attempt"] = self.last_connection_attempt
             
-            return False
-            
-    def is_connected(self) -> bool:
-        """Check if MongoDB is connected"""
-        try:
-            if self.client is None or self.db is None:
-                return False
-                
-            # Try to ping the database
-            self.db.command('ping')
-            return True
-        except Exception as e:
-            logger.warning(f"MongoDB connection check failed: {e}")
             return False
             
     def _connect_to_mongodb(self) -> bool:
@@ -193,24 +221,8 @@ class MongoDB:
                 logger.warning("MONGODB_URI not set. Falling back to in-memory storage mode.")
                 return False
             
-            # Properly encode username and password in the URI
-            if '@' in mongodb_uri:
-                try:
-                    # Split the URI into components
-                    prefix, rest = mongodb_uri.split('://', 1)
-                    auth_part, host_part = rest.split('@', 1)
-                    
-                    # Check if auth part contains username and password
-                    if ':' in auth_part:
-                        username, password = auth_part.split(':', 1)
-                        # URL encode the username and password
-                        encoded_username = urllib.parse.quote_plus(username)
-                        encoded_password = urllib.parse.quote_plus(password)
-                        # Reconstruct the URI
-                        mongodb_uri = f"{prefix}://{encoded_username}:{encoded_password}@{host_part}"
-                        logger.info("URI components have been properly URL-encoded")
-                except Exception as e:
-                    logger.warning(f"Failed to encode URI components: {str(e)}")
+            mongodb_uri = _encode_mongodb_uri(mongodb_uri)
+            self.uri = mongodb_uri
             
             # Update connection status
             self.last_connection_attempt = datetime.now()
@@ -249,12 +261,14 @@ class MongoDB:
                 server_info = self.client.server_info()
                 logger.info(f"Successfully connected to MongoDB. Server version: {server_info.get('version', 'unknown')}")
                 
-                # Set up database and collections
-                self.db = self.client.get_database("trichygold_bot")
-                self.tasks = self.db.get_collection("tasks")
-                self.inquiries = self.db.get_collection("inquiries")
-                self.notifications = self.db.get_collection("notifications")
-                self.messages = self.db.get_collection("messages")
+                uri_parts = re.match(
+                    r'mongodb(?:\+srv)?://(?:.*@)?([^/]+)(?:/([^?]+))?', mongodb_uri
+                )
+                db_name = (
+                    uri_parts.group(2) if uri_parts and uri_parts.group(2) else 'trichygold'
+                )
+                self.db = self.client[db_name]
+                self._init_collections()
                 
                 # Set storage mode flag
                 # MongoDB connection successful
@@ -672,7 +686,7 @@ class MongoDB:
             is_ok = ping_result.get('ok', 0) == 1
             
             if is_ok:
-                # Update server info if connection is successful
+                self._init_collections()
                 try:
                     server_info = self.client.server_info()
                     self.connection_status["server_info"] = {
@@ -681,7 +695,6 @@ class MongoDB:
                         "connections": server_info.get('connections', {})
                     }
                 except Exception:
-                    # If we can't get server info but ping worked, that's still a success
                     pass
                     
                 self.connection_status["status"] = "connected"
