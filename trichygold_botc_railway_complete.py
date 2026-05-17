@@ -1,15 +1,17 @@
-import asyncio
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
-from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters, CallbackQueryHandler
-from datetime import datetime, time
-import pytz
+from telegram.ext import (
+    Application,
+    CallbackQueryHandler,
+    CommandHandler,
+    ContextTypes,
+    MessageHandler,
+    filters,
+)
+from datetime import datetime
 import logging
 import os
-import re
-import copy
 import traceback
-from telegram.error import TelegramError
 from typing import Optional
 
 # Set up logging
@@ -134,28 +136,6 @@ async def log_all_updates(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Error logging update: {e}")
 
-async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle errors in the telegram bot."""
-    try:
-        logger.error(f"Error in update {update}: {context.error}")
-        
-        # Send error message to admin
-        if YOUR_ID:
-            error_msg = f"⚠️ Bot Error\n\n"
-            error_msg += f"Update: {update}\n\n"
-            error_msg += f"Error: {str(context.error)}"
-            
-            try:
-                await context.bot.send_message(
-                    chat_id=YOUR_ID,
-                    text=error_msg,
-                    parse_mode=ParseMode.HTML
-                )
-            except Exception as e:
-                logger.error(f"Failed to notify admin: {e}")
-    except Exception as e:
-        logger.error(f"Error in error handler: {e}")
-
 async def global_error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Log errors and send admin notifications"""
     logger.error("Exception while handling update:", exc_info=context.error)
@@ -200,7 +180,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         # Check if this is a registered employee
         employee_name = None
-        if db.is_connected():
+        if db.ensure_ready():
             employee = db.employees.find_one({"chat_id": chat_id})
             if employee:
                 employee_name = employee.get("name")
@@ -319,44 +299,6 @@ Format: /notify message
         reply_markup=reply_markup,
         parse_mode=ParseMode.MARKDOWN,
     )
-
-# Initialize employees directly in MongoDB
-def initialize_employees_in_mongodb():
-    try:
-        # Check if we have a connection to MongoDB
-        if not db.is_connected():
-            logger.warning("Cannot initialize employees: MongoDB not connected")
-            return
-            
-        # Make sure we have the employees collection
-        if not hasattr(db, 'employees') or db.employees is None:
-            db.employees = db.db.employees
-            
-        # Default employees to add if none exist
-        default_employees = [
-            {'name': 'shameem', 'chat_id': '1341853859'},
-            {'name': 'rehan', 'chat_id': '1475715464'}
-        ]
-        
-        # Check if we already have employees in MongoDB
-        existing_count = db.employees.count_documents({})
-        
-        if existing_count == 0:
-            # Add default employees to MongoDB
-            for employee in default_employees:
-                db.employees.update_one(
-                    {'chat_id': employee['chat_id']},
-                    {'$set': employee},
-                    upsert=True
-                )
-            logger.info(f"Added {len(default_employees)} default employees to MongoDB")
-        else:
-            logger.info(f"Found {existing_count} existing employees in MongoDB")
-    except Exception as e:
-        logger.error(f"Error initializing employees in MongoDB: {e}")
-
-# Run the initialization
-initialize_employees_in_mongodb()
 
 # Command Handlers
 async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -622,34 +564,29 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
     """Handle inline keyboard presses (delegates to button_handlers)."""
     await button_handlers_callback(update, context)
 
-async def register_handlers(app: Application):
-    """Safely register all command handlers"""
-    # Core commands that must exist
-    required_commands = [
+def register_handlers(app: Application) -> None:
+    """Register all bot command and callback handlers."""
+    for cmd, handler in (
         ("start", start),
         ("help", help_command),
-        ("test", test_command)
-    ]
-    
-    for cmd, handler in required_commands:
+        ("test", test_command),
+        ("add_employee", add_employee_command),
+        ("remove_employee", remove_employee_command),
+        ("list_employees", list_employees_command),
+        ("add_test_employees", add_test_employees_command),
+        ("assign", assign_task),
+        ("tasks", tasks_command),
+        ("done", tasks_command),
+    ):
         app.add_handler(CommandHandler(cmd, handler))
-    
-    # Optional commands with existence checks
-    optional_commands = [
-        ("assign", "assign_task"),
-        ("tasks", "tasks_command"),
-        ("done", "tasks_command"),
-        ("clarify", "clarify_command"),
-        ("list_employees", "list_employees_command")
-    ]
-    
-    for cmd, handler_name in optional_commands:
-        try:
-            handler = globals()[handler_name]
-            app.add_handler(CommandHandler(cmd, handler))
-            logger.info(f"Registered command: /{cmd}")
-        except KeyError:
-            logger.warning(f"Skipping /{cmd} - handler {handler_name} not found")
+        logger.info(f"Registered command: /{cmd}")
+
+    app.add_handler(CallbackQueryHandler(handle_button_callback))
+    app.add_error_handler(global_error_handler)
+
+    if os.getenv("DEBUG_UPDATES", "").lower() in ("1", "true", "yes"):
+        app.add_handler(MessageHandler(filters.ALL, log_all_updates), group=0)
+        logger.info("DEBUG_UPDATES enabled — logging all incoming updates")
 
 async def test_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Simple test command to verify bot responsiveness"""
@@ -663,44 +600,8 @@ async def test_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 if __name__ == '__main__':
     try:
         application = Application.builder().token(BOT_TOKEN).build()
-
-        # Set admin ID in bot_data for handlers
         application.bot_data['ADMIN_ID'] = YOUR_ID
-
-        # Register all handlers (admin, employee, test employee, button callbacks)
-        # Core commands
-        application.add_handler(CommandHandler("start", start))
-        application.add_handler(CommandHandler("help", help_command))
-        application.add_handler(CommandHandler("test", test_command))
-        
-        # Employee management handlers
-        application.add_handler(CommandHandler("add_employee", add_employee_command))
-        application.add_handler(CommandHandler("remove_employee", remove_employee_command))
-        application.add_handler(CommandHandler("list_employees", list_employees_command))
-        application.add_handler(CommandHandler("add_test_employees", add_test_employees_command))
-        
-        # Main bot commands (assign, tasks, done, clarify, etc.)
-        optional_commands = [
-            ("assign", "assign_task"),
-            ("tasks", "tasks_command"),
-            ("done", "tasks_command"),
-            ("clarify", "clarify_command"),
-            ("list_employees", "list_employees_command")
-        ]
-        for cmd, handler_name in optional_commands:
-            try:
-                handler = globals()[handler_name]
-                application.add_handler(CommandHandler(cmd, handler))
-                logger.info(f"Registered command: /{cmd}")
-            except KeyError:
-                logger.warning(f"Skipping /{cmd} - handler {handler_name} not found")
-
-                # Button callback handler
-        application.add_handler(CallbackQueryHandler(handle_button_callback))
-        # Error handler
-        application.add_error_handler(global_error_handler)
-        # Log all updates for debugging
-        application.add_handler(MessageHandler(filters.ALL, log_all_updates), group=0)
+        register_handlers(application)
         logger.info("All handlers registered successfully!")
 
         # Webhook setup

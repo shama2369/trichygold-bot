@@ -1,16 +1,18 @@
 import logging
+import os
+from datetime import datetime
+
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
-from database import db
-from datetime import datetime
 
-# Set up logging
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
+from database import db
+
 logger = logging.getLogger(__name__)
+
+
+def get_admin_id() -> str:
+    return os.getenv('ADMIN_ID', '1341853859')
 
 DB_UNAVAILABLE_MSG = (
     "⚠️ *Database not connected*\n\n"
@@ -75,14 +77,8 @@ async def process_button_callback(query, bot):
             )
             return
         
-        # Log the button press
-        logger.info(f"Processing button callback: {data} from user {chat_id}")
-        
-        # Get admin ID from environment variable
-        import os
-        YOUR_ID = os.getenv('ADMIN_ID', '1341853859')
-        
-        logger.info(f"Button callback received: {data} from user {chat_id}")
+        logger.info(f"Button callback: {data} from user {chat_id}")
+        YOUR_ID = get_admin_id()
 
         needs_db = (
             data in ('cmd_list_employees', 'cmd_assign', 'cmd_tasks', 'cmd_done')
@@ -131,8 +127,6 @@ async def process_button_callback(query, bot):
             await query.message.reply_text(help_text, parse_mode="Markdown")
             
         elif data == 'cmd_list_employees':
-            # Show employee list directly
-            from database import db
             employees = list(db.employees.find())
             
             if not employees:
@@ -152,8 +146,6 @@ async def process_button_callback(query, bot):
             message += "• To add: `/add_employee <n> <chat_id>`\n"
             message += "• To remove: `/remove_employee <chat_id>`\n"
             
-            # Create keyboard with side-by-side buttons
-            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
             keyboard = [
                 [
                     InlineKeyboardButton("➕ Add Employee", callback_data="add_employee_info"),
@@ -168,10 +160,6 @@ async def process_button_callback(query, bot):
             )
             
         elif data == 'cmd_assign':
-            # Show assign task command format - match BotFather format exactly
-            from database import db
-            
-            # Get available employees for the example
             all_employees = list(db.employees.find())
             employee_names = [emp.get('name', 'employee') for emp in all_employees]
             
@@ -201,11 +189,6 @@ async def process_button_callback(query, bot):
             
             # For tasks, we'll implement a direct response instead of calling the command
             try:
-                # Import required classes inside the function to ensure they're available
-                from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-                from database import db
-                
-                # Get active tasks from database
                 active_tasks = list(db.tasks.find({"status": {"$ne": "completed"}, "completed": {"$ne": True}}))
                 
                 if not active_tasks:
@@ -343,10 +326,7 @@ async def process_button_callback(query, bot):
             task_id = int(data.split('_')[1])
             
             try:
-                # Check if this is admin or employee
-                from database import db
-                import os
-                admin_id = os.getenv('ADMIN_ID', '1341853859')
+                admin_id = get_admin_id()
                 
                 # Set the completer name based on whether this is admin or employee
                 if chat_id == admin_id:
@@ -389,10 +369,6 @@ async def process_button_callback(query, bot):
                         f"Completed by: {completer_name}\n"
                         f"Time: {datetime.now().strftime('%I:%M %p')}"
                     )
-                    
-                    # Notify admin about task completion (if completed by employee)
-                    import os
-                    admin_id = os.getenv('ADMIN_ID', '1341853859')
                     
                     if chat_id != admin_id:
                         # Send notification to admin with proper formatting
@@ -582,8 +558,6 @@ async def process_button_callback(query, bot):
                 except Exception as e:
                     logger.error(f"Failed to notify removed employee: {e}")
                     
-                # Show updated employee list
-                from database import db
                 employees = list(db.employees.find())
                 
                 if employees:
@@ -618,8 +592,6 @@ async def process_button_callback(query, bot):
                 await query.answer("⛔ Only administrators can delete tasks.")
                 return
                 
-            # Create confirmation buttons
-            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
             keyboard = [
                 [
                     InlineKeyboardButton("✅ Yes, delete", callback_data=f"confirm_delete_task_{task_id}"),
@@ -641,10 +613,6 @@ async def process_button_callback(query, bot):
             if chat_id != YOUR_ID:
                 await query.answer("⛔ Only administrators can delete tasks.")
                 return
-                
-            # Ensure we have the necessary imports
-            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-            from database import db
                 
             try:
                 # Get task details before deletion for notification

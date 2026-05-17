@@ -1,23 +1,14 @@
 import os
 import re
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Tuple
-from pymongo import MongoClient
-from pymongo.collection import Collection
-from pymongo.database import Database
-from pymongo.errors import ConnectionFailure, ServerSelectionTimeoutError, OperationFailure
 import logging
-import ssl
-import certifi
-import time
-import asyncio
 import urllib.parse
+from datetime import datetime
+from typing import Dict, List, Optional, Any, Tuple
 
-# Set up logging
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
+import certifi
+from pymongo import MongoClient
+from pymongo.errors import ConnectionFailure, ServerSelectionTimeoutError, OperationFailure
+
 logger = logging.getLogger(__name__)
 
 
@@ -175,6 +166,7 @@ class MongoDB:
             logger.info(f"Successfully connected to MongoDB. Server version: {server_info.get('version')}")
             
             self._init_collections()
+            self._ensure_indexes()
             
             # Update connection status
             self.connection_status["status"] = "connected"
@@ -196,141 +188,23 @@ class MongoDB:
             self.connection_status["last_attempt"] = self.last_connection_attempt
             
             return False
-            
-    def _connect_to_mongodb(self) -> bool:
-        """Attempt to connect to MongoDB with retry logic"""
-        try:
-            # Get MongoDB URI from environment variables
-            mongodb_uri = get_mongodb_uri()
-            self.uri = mongodb_uri
-            
-            if not mongodb_uri:
-                logger.error("MONGODB_URI (or MONGO_URI) environment variable not set")
-                self.connection_error = "MONGODB_URI (or MONGO_URI) environment variable not set"
-                # MongoDB connection failed, but we'll try again later
-                
-                # Update connection status
-                self.connection_status = {
-                    "status": "error",
-                    "last_attempt": datetime.now(),
-                    "error": self.connection_error,
-                    "server_info": None,
-                    "reconnect_attempts": self.reconnect_attempts
-                }
-                
-                logger.warning("MONGODB_URI not set. Falling back to in-memory storage mode.")
-                return False
-            
-            mongodb_uri = _encode_mongodb_uri(mongodb_uri)
-            self.uri = mongodb_uri
-            
-            # Update connection status
-            self.last_connection_attempt = datetime.now()
-            self.connection_status["last_attempt"] = self.last_connection_attempt
-            self.connection_status["status"] = "connecting"
-            
-            # Connect with minimal parameters but ensure SSL certificate validation
-            logger.info("Attempting to connect to MongoDB...")
-            self.client = MongoClient(
-                mongodb_uri,
-                tlsCAFile=certifi.where(),  # Add SSL certificate validation
-                connectTimeoutMS=30000,
-                socketTimeoutMS=30000,
-                serverSelectionTimeoutMS=30000,
-                retryWrites=True,  # Enable retry for write operations
-                w="majority"  # Wait for write acknowledgment from majority of replicas
-            )
-            logger.info("MongoDB client initialized")
-            
-            # Try to connect to MongoDB
+
+    def _ensure_indexes(self) -> None:
+        """Create indexes after a successful connection."""
+        if self.tasks is not None:
             try:
-                # Log connection attempt details (safely without credentials)
-                if '@' in mongodb_uri:
-                    uri_parts = mongodb_uri.split('@')
-                    if len(uri_parts) > 1 and '/' in uri_parts[1]:
-                        host_part = uri_parts[1].split('/')[0]
-                        logger.info(f"MongoDB URI pattern: {host_part}")
-                
-                logger.info(f"MongoDB client options: connectTimeoutMS=30000, socketTimeoutMS=30000, serverSelectionTimeoutMS=30000")
-                
-                # Ping the database to check connection
-                logger.info("Attempting to ping MongoDB server...")
-                self.client.admin.command('ping')
-                
-                # Get server info for detailed logging
-                server_info = self.client.server_info()
-                logger.info(f"Successfully connected to MongoDB. Server version: {server_info.get('version', 'unknown')}")
-                
-                uri_parts = re.match(
-                    r'mongodb(?:\+srv)?://(?:.*@)?([^/]+)(?:/([^?]+))?', mongodb_uri
-                )
-                db_name = (
-                    uri_parts.group(2) if uri_parts and uri_parts.group(2) else 'trichygold'
-                )
-                self.db = self.client[db_name]
-                self._init_collections()
-                
-                # Set storage mode flag
-                # MongoDB connection successful
-                self.connection_error = None
-                self.reconnect_attempts = 0
-                
-                # Update connection status
-                self.connection_status = {
-                    "status": "connected",
-                    "last_attempt": self.last_connection_attempt,
-                    "error": None,
-                    "server_info": {
-                        "version": server_info.get('version', 'unknown'),
-                        "host": server_info.get('host', 'unknown'),
-                        "connections": server_info.get('connections', {})
-                    },
-                    "reconnect_attempts": self.reconnect_attempts
-                }
-                
-                logger.info("Using MongoDB for storage")
-                
-                # Create indexes
                 self.tasks.create_index('task_id', unique=True)
+            except Exception as e:
+                logger.warning(f"Could not create tasks index: {e}")
+        if self.inquiries is not None:
+            try:
                 self.inquiries.create_index('inquiry_id', unique=True)
-                
-                return True
-                
-            except (ConnectionFailure, ServerSelectionTimeoutError, OperationFailure) as e:
-                error_msg = f"Failed to connect to MongoDB: {str(e)}"
-                logger.error(error_msg)
-                self.connection_error = error_msg
-                # MongoDB connection failed, but we'll try again later
-                
-                # Update connection status
-                self.connection_status = {
-                    "status": "error",
-                    "last_attempt": self.last_connection_attempt,
-                    "error": error_msg,
-                    "server_info": None,
-                    "reconnect_attempts": self.reconnect_attempts
-                }
-                
-                logger.warning("Falling back to in-memory storage mode")
-                return False
-                
-        except Exception as e:
-            error_msg = f"Unexpected error connecting to MongoDB: {str(e)}"
-            logger.error(error_msg)
-            self.connection_error = error_msg
-            # MongoDB connection failed, but we'll try again later
-            
-            # Update connection status
-            self.connection_status = {
-                "status": "error",
-                "last_attempt": self.last_connection_attempt,
-                "error": error_msg,
-                "server_info": None,
-                "reconnect_attempts": self.reconnect_attempts
-            }
-            
-            logger.warning("Falling back to in-memory storage mode due to unexpected error")
-            return False
+            except Exception as e:
+                logger.warning(f"Could not create inquiries index: {e}")
+
+    def _connect_to_mongodb(self) -> bool:
+        """Legacy alias used by try_reconnect."""
+        return self.connect()
             
     # Task operations
     def create_task(self, task_id: int, task: str, employees: List[str], reminder_interval: int) -> Dict:
@@ -346,61 +220,30 @@ class MongoDB:
             'clarifications': []
         }
         
-        if False:  # MongoDB only mode
-            self.tasks_data.append(task_doc)
-        else:
-            # Use insert_one without await - pymongo operations are not coroutines
-            self.tasks.insert_one(task_doc)
-        
+        self.tasks.insert_one(task_doc)
         return task_doc
     
     def get_task(self, task_id: int) -> Optional[Dict]:
         """Get a task by its ID from database or in-memory storage"""
-        if False:  # MongoDB only mode
-            for task in self.tasks_data:
-                if task['task_id'] == task_id:
-                    return task
-            return None
-        else:
-            # MongoDB operations are not coroutines, so no await needed
-            return self.tasks.find_one({'task_id': task_id})
+        return self.tasks.find_one({'task_id': task_id})
     
     def update_task_status(self, task_id: int, status: str, completed_by: str = None) -> bool:
         """Update a task's status in database or in-memory storage"""
-        if False:  # MongoDB only mode
-            # Update task in in-memory storage
-            for task in self.tasks_data:
-                if task.get('task_id') == task_id:
-                    task['status'] = status
-                    if status == 'completed' and completed_by:
-                        task['completed_at'] = datetime.now()
-                        task['completed_by'] = completed_by
-                    return True
-            return False
-        else:
-            # Update task in MongoDB
-            update = {
-                '$set': {
-                    'status': status,
-                    'completed_at': datetime.now(),
-                    'completed_by': completed_by
-                }
+        update = {
+            '$set': {
+                'status': status,
+                'completed_at': datetime.now(),
+                'completed_by': completed_by,
             }
-            # Don't use await with update_one
-            result = self.tasks.update_one({'task_id': task_id}, update)
-            return result.modified_count > 0
+        }
+        result = self.tasks.update_one({'task_id': task_id}, update)
+        return result.modified_count > 0
     
     def get_active_tasks(self) -> List[Dict]:
         """Get all active tasks from MongoDB"""
         try:
-            # Ensure we have a valid connection
-            if not self.is_connected():
-                logger.warning("MongoDB not connected. Attempting to reconnect...")
-                self.connect()
-                
-            if not hasattr(self, 'tasks') or self.tasks is None:
-                self.tasks = self.db.tasks
-                
+            if not self.ensure_ready():
+                return []
             # Return tasks from MongoDB
             cursor = self.tasks.find({"status": {"$ne": "completed"}})
             tasks = list(cursor)
@@ -420,14 +263,8 @@ class MongoDB:
     def get_employees(self):
         """Get all employees from MongoDB"""
         try:
-            if not self.is_connected():
-                logger.warning("Cannot get employees: MongoDB not connected")
+            if not self.ensure_ready():
                 return []
-                
-            # Make sure we have the employees collection
-            if not hasattr(self, 'employees') or self.employees is None:
-                self.employees = self.db.employees
-                
             # Get all employees
             employees = list(self.employees.find())
             return employees
@@ -447,14 +284,8 @@ class MongoDB:
             Tuple[bool, str, Dict]: (success, message, employee_data)
         """
         try:
-            if not self.is_connected():
+            if not self.ensure_ready():
                 return False, "Database connection error", {}
-                
-            # Make sure we have the employees collection
-            if not hasattr(self, 'employees') or self.employees is None:
-                self.employees = self.db.employees
-                
-            # Check if employee already exists
             existing_employee = self.employees.find_one({'chat_id': chat_id})
             if existing_employee:
                 return False, f"Employee with chat ID {chat_id} already exists", existing_employee
@@ -491,14 +322,8 @@ class MongoDB:
             Tuple[bool, str, Dict]: (success, message, removed_employee_data)
         """
         try:
-            if not self.is_connected():
+            if not self.ensure_ready():
                 return False, "Database connection error", {}
-                
-            # Make sure we have the employees collection
-            if not hasattr(self, 'employees') or self.employees is None:
-                self.employees = self.db.employees
-                
-            # Check if employee exists
             existing_employee = self.employees.find_one({'chat_id': chat_id})
             if not existing_employee:
                 return False, f"No employee found with chat ID {chat_id}", {}
@@ -528,15 +353,8 @@ class MongoDB:
             Optional[Dict]: Employee data or None if not found
         """
         try:
-            if not self.is_connected():
-                logger.warning("Cannot get employee: MongoDB not connected")
+            if not self.ensure_ready():
                 return None
-                
-            # Make sure we have the employees collection
-            if not hasattr(self, 'employees') or self.employees is None:
-                self.employees = self.db.employees
-                
-            # Find employee by chat_id
             employee = self.employees.find_one({'chat_id': str(chat_id)})
             return employee
             
@@ -547,18 +365,8 @@ class MongoDB:
     def get_employee_tasks(self, employee_id):
         """Get all tasks assigned to a specific employee from MongoDB"""
         try:
-            # Ensure we have a valid connection
-            if not self.is_connected():
-                logger.warning("MongoDB not connected. Attempting to reconnect...")
-                self.connect()
-                
-            # Make sure we have the tasks and employees collections
-            if not hasattr(self, 'tasks') or self.tasks is None:
-                self.tasks = self.db.tasks
-                
-            if not hasattr(self, 'employees') or self.employees is None:
-                self.employees = self.db.employees
-            
+            if not self.ensure_ready():
+                return []
             # First, find the employee name from the chat_id
             employee_name = None
             employee = self.employees.find_one({"chat_id": str(employee_id)})
@@ -589,58 +397,31 @@ class MongoDB:
 
     # Inquiry operations
     def add_inquiry(self, task_id: int, employee: str, message: str) -> Dict:
-        """Add an inquiry to a task in database or in-memory storage"""
-        # ... (rest of the code remains the same)
+        """Add an inquiry to a task."""
         inquiry = {
             'task_id': task_id,
             'employee': employee,
             'message': message,
-            'created_at': datetime.now()
+            'created_at': datetime.now(),
         }
-        
-        if False:  # MongoDB only mode
-            self.inquiries_data.append(inquiry)
-            # Find and update the task in memory
-            for task in self.tasks_data:
-                if task['task_id'] == task_id:
-                    if 'inquiries' not in task:
-                        task['inquiries'] = []
-                    task['inquiries'].append(inquiry)
-                    break
-        else:
-            # Use insert_one without await
-            result = self.inquiries.insert_one(inquiry)
-            # Update task with inquiry reference - don't use await
-            self.tasks.update_one(
-                {'task_id': task_id},
-                {'$push': {'inquiries': result.inserted_id}}
-            )
-            
+        result = self.inquiries.insert_one(inquiry)
+        self.tasks.update_one(
+            {'task_id': task_id},
+            {'$push': {'inquiries': result.inserted_id}},
+        )
         return inquiry
     
     def add_clarification(self, task_id: int, message: str) -> Dict:
-        """Add a clarification to a task in database or in-memory storage"""
+        """Add a clarification to a task."""
         clarification = {
             'task_id': task_id,
             'message': message,
-            'created_at': datetime.now()
+            'created_at': datetime.now(),
         }
-        
-        if False:  # MongoDB only mode
-            # Find and update the task in memory
-            for task in self.tasks_data:
-                if task['task_id'] == task_id:
-                    if 'clarifications' not in task:
-                        task['clarifications'] = []
-                    task['clarifications'].append(clarification)
-                    break
-        else:
-            # Update task with clarification - don't use await
-            self.tasks.update_one(
-                {'task_id': task_id},
-                {'$push': {'clarifications': clarification}}
-            )
-            
+        self.tasks.update_one(
+            {'task_id': task_id},
+            {'$push': {'clarifications': clarification}},
+        )
         return clarification
     
     # Notification operations
@@ -653,25 +434,14 @@ class MongoDB:
             'status': 'pending'
         }
         
-        if False:  # MongoDB only mode
-            self.notifications_data.append(notification)
-        else:
-            # Use insert_one without await
-            self.notifications.insert_one(notification)
-            
+        self.notifications.insert_one(notification)
         return notification
     
     def get_pending_notifications(self) -> List[Dict]:
-        """Get pending notifications from database or in-memory storage"""
-        if False:  # MongoDB only mode
-            return [n for n in self.notifications_data if n['status'] == 'pending']
-        else:
-            # Convert cursor to list manually
-            cursor = self.notifications.find({'status': 'pending'})
-            result = []
-            for doc in cursor:
-                result.append(doc)
-            return result
+        """Get pending notifications."""
+        if not self.ensure_ready():
+            return []
+        return list(self.notifications.find({'status': 'pending'}))
     
     def is_connected(self) -> bool:
         """Check if MongoDB is connected and operational"""
@@ -718,12 +488,7 @@ class MongoDB:
             'created_at': datetime.now()
         }
         
-        if False:  # MongoDB only mode
-            self.messages_data.append(message)
-        else:
-            # Use insert_one without await
-            self.messages.insert_one(message)
-            
+        self.messages.insert_one(message)
         return message
 
     def get_connection_details(self) -> Dict[str, Any]:
@@ -731,62 +496,15 @@ class MongoDB:
         return self.connection_status
 
     async def try_reconnect(self) -> bool:
-        """Force a reconnection attempt to MongoDB"""
+        """Force a reconnection attempt to MongoDB."""
         logger.info("Forcing reconnection attempt to MongoDB")
         self.reconnect_attempts = 0
         self.last_connection_attempt = None
-        return self._connect_to_mongodb()
+        return self.connect()
 
     async def migrate_memory_to_db(self) -> Tuple[bool, int]:
-        """Migrate in-memory data to MongoDB if connection is restored"""
-        if not self.is_connected():
-            return False, 0
-            
-        try:
-            # We have a connection but we're still in memory mode
-            # This means we need to migrate data and switch modes
-            migrated_count = 0
-            
-            # Migrate tasks
-            if self.tasks_data:
-                for task in self.tasks_data:
-                    await self.tasks.update_one(
-                        {"task_id": task["task_id"]},
-                        {"$set": task},
-                        upsert=True
-                    )
-                    migrated_count += 1
-                    
-            # Migrate inquiries
-            if self.inquiries_data:
-                for inquiry in self.inquiries_data:
-                    await self.inquiries.update_one(
-                        {"inquiry_id": inquiry.get("inquiry_id")},
-                        {"$set": inquiry},
-                        upsert=True
-                    )
-                    migrated_count += 1
-                    
-            # Migrate notifications
-            if self.notifications_data:
-                for notification in self.notifications_data:
-                    await self.notifications.insert_one(notification)
-                    migrated_count += 1
-                    
-            # Migrate messages
-            if self.messages_data:
-                for message in self.messages_data:
-                    await self.messages.insert_one(message)
-                    migrated_count += 1
-                    
-            # Migration successful
-            logger.info("Switched to database mode exclusively")
-            logger.info(f"Successfully migrated {migrated_count} items from memory to MongoDB")
-            
-            return True, migrated_count
-        except Exception as e:
-            logger.error(f"Failed to migrate in-memory data to MongoDB: {e}")
-            return False, 0
+        """No-op: in-memory fallback was removed."""
+        return False, 0
 
 # Global database instance
 db = MongoDB()
