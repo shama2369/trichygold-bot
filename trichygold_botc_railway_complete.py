@@ -456,6 +456,130 @@ async def tasks_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error in tasks_command: {e}")
         await update.message.reply_text("❌ An error occurred while fetching tasks.")
 
+
+def _format_completed_at(task) -> str:
+    at = task.get('completed_at')
+    if not at:
+        return 'Unknown'
+    if isinstance(at, datetime):
+        return at.strftime('%I:%M %p')
+    return str(at)
+
+
+async def task_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin: view tasks assigned to a specific employee by name."""
+    try:
+        chat_id = str(update.message.chat_id)
+        if chat_id != YOUR_ID:
+            await update.message.reply_text("❌ This command is only for admin use.")
+            return
+
+        if not context.args:
+            await update.message.reply_text(
+                "❌ Usage: /task <employee_name>\n\nExample: /task swathy"
+            )
+            return
+
+        if not db.ensure_ready():
+            await update.message.reply_text("❌ Database not connected. Check MONGODB_URI on Railway.")
+            return
+
+        search_name = " ".join(context.args).strip()
+        employees = list(db.employees.find())
+        employee_id = None
+        employee_name = search_name
+
+        for emp in employees:
+            name = emp.get('name', '')
+            if name.lower() == search_name.lower():
+                employee_id = str(emp.get('chat_id'))
+                employee_name = name
+                break
+
+        if not employee_id:
+            for emp in employees:
+                name = emp.get('name', '')
+                if search_name.lower() in name.lower():
+                    employee_id = str(emp.get('chat_id'))
+                    employee_name = name
+                    break
+
+        if not employee_id:
+            known = ', '.join(sorted(e.get('name', '') for e in employees)) or '(none)'
+            await update.message.reply_text(
+                f"❌ No employee found matching '{search_name}'.\n\n"
+                f"Registered: {known}\n\nUse /list_employees for details.",
+            )
+            return
+
+        tasks = list(db.tasks.find({
+            "$or": [
+                {"assigned_to": employee_id},
+                {"assigned_to": {"$in": [employee_id]}},
+                {"employees": employee_name},
+                {"employees": {"$in": [employee_name]}},
+            ]
+        }))
+
+        if not tasks:
+            await update.message.reply_text(
+                f"📋 *{employee_name} has no tasks assigned.*",
+                parse_mode=ParseMode.MARKDOWN,
+            )
+            return
+
+        active_tasks = [
+            t for t in tasks
+            if t.get('status') != 'completed' and not t.get('completed', False)
+        ]
+        completed_tasks = [
+            t for t in tasks
+            if t.get('status') == 'completed' or t.get('completed', False)
+        ]
+
+        if active_tasks:
+            message = f"📋 *Active Tasks for {employee_name}*\n\n"
+            for task in active_tasks:
+                task_id = task.get('task_id')
+                priority = task.get('priority')
+                due_date = task.get('due_date')
+                minutes = task.get('reminder_interval')
+                message += f"*Task #{task_id}*\n"
+                message += f"• *Description:* {task.get('task', 'No description')}\n"
+                if priority:
+                    message += f"• *Priority:* {priority}\n"
+                if due_date:
+                    message += f"• *Due:* {due_date}\n"
+                if minutes:
+                    message += f"• *Reminder:* every {minutes} minutes\n"
+                message += "\n"
+            await update.message.reply_text(message, parse_mode=ParseMode.MARKDOWN)
+        else:
+            await update.message.reply_text(
+                f"📋 *{employee_name} has no active tasks.*",
+                parse_mode=ParseMode.MARKDOWN,
+            )
+
+        if completed_tasks:
+            completed_tasks.sort(
+                key=lambda x: x.get('completed_at') or datetime.min,
+                reverse=True,
+            )
+            message = f"📋 *Recently Completed for {employee_name}* (last 5)\n\n"
+            for task in completed_tasks[:5]:
+                task_id = task.get('task_id')
+                message += (
+                    f"✅ *Task #{task_id}*\n"
+                    f"• *Description:* {task.get('task', 'No description')}\n"
+                    f"• *Completed:* {_format_completed_at(task)}\n\n"
+                )
+            await update.message.reply_text(message, parse_mode=ParseMode.MARKDOWN)
+
+    except Exception as e:
+        logger.error(f"Error in task_command: {e}")
+        await update.message.reply_text("❌ An error occurred while fetching tasks.")
+
+
 async def handle_task_completion(update: Update, context: ContextTypes.DEFAULT_TYPE, task_id: int, is_admin: bool, employee_name: str = None):
     """Handle task completion for both admin and employees. Handles both command and callback contexts safely."""
     try:
@@ -554,6 +678,7 @@ def register_handlers(app: Application) -> None:
         ("add_test_employees", add_test_employees_command),
         ("assign", assign_task),
         ("tasks", tasks_command),
+        ("task", task_command),
         ("done", tasks_command),
     ):
         app.add_handler(CommandHandler(cmd, handler))
