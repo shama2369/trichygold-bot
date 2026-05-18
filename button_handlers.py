@@ -184,22 +184,31 @@ async def process_button_callback(query, bot):
             )
             
         elif data == 'cmd_tasks' or data == 'cmd_done':
-            # Show tasks directly
-            await query.message.reply_text("📋 *Active Tasks*\n\nFetching your tasks...", parse_mode=ParseMode.MARKDOWN)
-            
-            # For tasks, we'll implement a direct response instead of calling the command
+            is_admin = str(chat_id) == YOUR_ID
+            if is_admin:
+                loading_text = "📋 *All Active Tasks*\n\nFetching all shop tasks..."
+                list_header = "📋 *All Active Tasks*\n\n"
+                empty_text = "📋 *No active tasks in the system.*"
+                refresh_label = "🔄 Refresh All Tasks"
+            else:
+                loading_text = "📋 *Your Tasks*\n\nFetching your tasks..."
+                list_header = "📋 *Your Active Tasks*\n\n"
+                empty_text = "📋 *You have no active tasks at the moment.*"
+                refresh_label = "🔄 Refresh My Tasks"
+
+            await query.message.reply_text(loading_text, parse_mode=ParseMode.MARKDOWN)
+
             try:
                 active_tasks = list(db.tasks.find({"status": {"$ne": "completed"}, "completed": {"$ne": True}}))
-                
+
                 if not active_tasks:
-                    await query.message.reply_text("📋 *No active tasks at the moment.*", parse_mode=ParseMode.MARKDOWN)
+                    await query.message.reply_text(empty_text, parse_mode=ParseMode.MARKDOWN)
                     return
-                
-                # Format tasks based on user role
-                message = "📋 *Active Tasks*\n\n"
+
+                message = list_header
                 keyboard = []
-                
-                if str(chat_id) == YOUR_ID:  # Admin view - show all tasks
+
+                if is_admin:  # Admin view - show all tasks
                     for task in active_tasks:
                         task_id = task.get('task_id')
                         task_desc = task.get('task', 'No description')
@@ -211,6 +220,11 @@ async def process_button_callback(query, bot):
                             emp = db.employees.find_one({"chat_id": str(emp_id)})
                             if emp and emp.get('name'):
                                 assigned_names.append(emp.get('name'))
+                        if not assigned_names:
+                            assigned_names = [
+                                n for n in (task.get('employees') or [])
+                                if isinstance(n, str) and n
+                            ]
                         
                         # Format extra info
                         priority = task.get('priority')
@@ -275,8 +289,7 @@ async def process_button_callback(query, bot):
                         # Add button for this task
                         keyboard.append([InlineKeyboardButton(f"✅ Mark Task #{task_id} Complete", callback_data=f"taskdone_{task_id}")])
                 
-                # Add refresh button at the bottom
-                keyboard.append([InlineKeyboardButton("🔄 Refresh Tasks", callback_data="cmd_tasks")])
+                keyboard.append([InlineKeyboardButton(refresh_label, callback_data="cmd_tasks")])
                 
                 await query.message.reply_text(
                     message, 
@@ -423,38 +436,47 @@ async def process_button_callback(query, bot):
                     # Confirm to user with consistent styling
                     await query.message.reply_text(f"✅ *Task #{task_id} marked as complete!*", parse_mode=ParseMode.MARKDOWN)
                     
-                    # Show updated task list with assigned date, priority, and due date
                     active_tasks = list(db.tasks.find({"status": {"$ne": "completed"}, "completed": {"$ne": True}}))
-                    
-                    if active_tasks:
+
+                    if chat_id == admin_id:
+                        remaining = len(active_tasks)
+                        if remaining:
+                            await query.message.reply_text(
+                                f"📋 *{remaining} active task(s) remaining in the shop.*\n"
+                                "Tap *All Active Tasks* to view the full list.",
+                                parse_mode=ParseMode.MARKDOWN,
+                            )
+                        else:
+                            await query.message.reply_text(
+                                "✅ No active tasks remaining in the system.",
+                                parse_mode=ParseMode.MARKDOWN,
+                            )
+                    elif active_tasks:
                         task_message = "📋 *Your Active Tasks*\n\n"
                         has_tasks = False
-                        
+
                         for task in active_tasks:
                             if str(chat_id) in [str(cid) for cid in task.get('assigned_to', [])]:
-                                task_id = task['task_id']
+                                tid = task['task_id']
                                 task_desc = task['task']
-                                task_item = f"*#{task_id}:* {task_desc}\n"
-                                
-                                # Add assigned date if available
+                                task_item = f"*#{tid}:* {task_desc}\n"
+
                                 assigned_date = task.get('assigned_date')
                                 if assigned_date:
                                     task_item += f"• *Assigned:* {assigned_date}\n"
-                                
-                                # Add due date if available
+
                                 due_date = task.get('due_date')
                                 if due_date:
                                     task_item += f"• *Due:* {due_date}\n"
-                                    
-                                # Add priority if available
+
                                 priority = task.get('priority')
                                 if priority:
                                     priority_icon = "🔴" if priority.lower() == "high" else "🟡" if priority.lower() == "medium" else "🟢"
                                     task_item += f"• *Priority:* {priority_icon} {priority}\n"
-                                
+
                                 task_message += task_item + "\n"
                                 has_tasks = True
-                        
+
                         if has_tasks:
                             await query.message.reply_text(task_message, parse_mode="Markdown")
                         else:

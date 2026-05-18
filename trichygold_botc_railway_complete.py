@@ -63,6 +63,7 @@ elif not db.ensure_ready():
 from employee_handlers import add_employee_command, remove_employee_command, list_employees_command
 from test_employees import add_test_employees_command
 from button_handlers import handle_button_callback as button_handlers_callback
+from assign_parser import parse_assign_args, ASSIGN_USAGE
 
 # Helper functions
 async def format_task_message(task, chat_id):
@@ -174,7 +175,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = [
             [InlineKeyboardButton("📋 List Employees", callback_data="cmd_list_employees")],
             [InlineKeyboardButton("📝 Assign Task", callback_data="cmd_assign")],
-            [InlineKeyboardButton("📊 View Tasks", callback_data="cmd_tasks")],
+            [InlineKeyboardButton("📊 All Active Tasks", callback_data="cmd_tasks")],
             [InlineKeyboardButton("❓ Help", callback_data="cmd_help")]
         ]
     else:
@@ -227,7 +228,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 🔑 *Admin Commands*
 
 /assign - Assign tasks to employees
-Format: /assign employee1,employee2 task [time] [priority] [due_date]
+Format: /assign employee1,employee2 <task words> [36m] [p:low] [due:tomorrow]
 
 /tasks - View and manage all active tasks
 Format: /tasks [task_id]
@@ -261,7 +262,7 @@ Format: /task employee_name
         keyboard = [
             [InlineKeyboardButton("📋 List Employees", callback_data="cmd_list_employees")],
             [InlineKeyboardButton("📝 Assign Task", callback_data="cmd_assign")],
-            [InlineKeyboardButton("📊 View Tasks", callback_data="cmd_tasks")]
+            [InlineKeyboardButton("📊 All Active Tasks", callback_data="cmd_tasks")]
         ]
     else:
         help_text = r"""
@@ -309,78 +310,53 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Only admin can assign tasks!")
             return
 
-        # Get task details from command arguments
         args = context.args
         if not args:
-            await update.message.reply_text(
-                "❌ Usage: /assign [employee_names] task [time] [priority] [due_date]\n\n"
-                "Example: /assign shameem,rehan Check inventory 30m high tomorrow"
+            await update.message.reply_text(ASSIGN_USAGE, parse_mode=ParseMode.MARKDOWN)
+            return
+
+        if not db.ensure_ready():
+            await update.message.reply_text("❌ Database not connected. Check MONGODB_URI on Railway.")
+            return
+
+        try:
+            employee_names, task_description, time_minutes, priority, due_date = parse_assign_args(
+                list(args)
             )
+        except ValueError as e:
+            await update.message.reply_text(f"❌ {e}\n\n{ASSIGN_USAGE}", parse_mode=ParseMode.MARKDOWN)
             return
 
-        # Parse command arguments
-        employee_names = []
-        task_description = ""
-        time_minutes = None
-        priority = "normal"
-        due_date = None
-
-        # Parse employee names (comma-separated list at start)
-        if ',' in args[0]:
-            employee_names = args[0].split(',')
-            args = args[1:]
-        else:
-            employee_names = [args[0]]
-            args = args[1:]
-
-        # Get task description
-        if args:
-            task_description = args[0]
-            args = args[1:]
-
-        # Parse optional time (minutes)
-        if args and args[0].isdigit():
-            time_minutes = int(args[0])
-            args = args[1:]
-
-        # Parse optional priority
-        if args and args[0].lower() in ['low', 'normal', 'high']:
-            priority = args[0].lower()
-            args = args[1:]
-
-        # Parse optional due date
-        if args:
-            due_date = args[0].lower()
-
-        # Validate task description
-        if not task_description:
-            await update.message.reply_text("❌ Task description is required!")
-            return
-
-        # Get employee chat IDs
+        all_employees = list(db.employees.find())
+        available = {emp['name'].lower(): emp for emp in all_employees}
         employee_chat_ids = []
         for name in employee_names:
-            employee = db.employees.find_one({"name": name.strip()})
-            if employee:
-                employee_chat_ids.append(employee["chat_id"])
-            else:
-                await update.message.reply_text(f"❌ Employee '{name}' not found!")
+            emp = available.get(name.lower())
+            if not emp:
+                known = ', '.join(sorted(available.keys())) or '(none)'
+                await update.message.reply_text(
+                    f"❌ Employee '{name}' not found.\nAvailable: {known}"
+                )
                 return
+            employee_chat_ids.append(emp['chat_id'])
 
-        # Generate unique task ID
-        task_id = db.tasks.count_documents({}) + 1
+        highest = db.tasks.find_one(sort=[('task_id', -1)])
+        task_id = 1 if not highest else highest['task_id'] + 1
+        assigned_at = datetime.now()
+        formatted_assigned = assigned_at.strftime('%Y-%m-%d %H:%M')
 
-        # Create task data
         task_data = {
             "task_id": task_id,
             "task": task_description,
+            "employees": employee_names,
             "assigned_by": chat_id,
             "assigned_to": employee_chat_ids,
-            "assigned_at": datetime.now(),
+            "assigned_at": assigned_at,
+            "assigned_date": formatted_assigned,
             "status": "active",
             "priority": priority,
             "due_date": due_date,
-            "reminder_interval": time_minutes or 60  # Default to hourly reminders
+            "reminder_interval": time_minutes,
         }
 
         # Store task in MongoDB
@@ -398,7 +374,7 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     text=f"📝 New Task #{task_id}\n"
                          f"• Description: {task_description}\n"
                          f"• Priority: {priority}\n"
-                         f"• Time: {time_minutes or 'Not specified'} minutes\n"
+                         f"• Reminder: every {time_minutes} minutes\n"
                          f"• Due: {due_date or 'Not specified'}\n\n"
                          f"Assigned by Admin",
                     reply_markup=reply_markup
@@ -406,12 +382,14 @@ async def assign_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception as e:
                 logger.error(f"Failed to notify employee {emp_chat_id}: {e}")
 
-        # Send confirmation to admin
+        priority_icon = (
+            "🔴" if priority == "high" else "🟡" if priority == "medium" else "🟢"
+        )
         await update.message.reply_text(
             f"✅ Created Task #{task_id}\n"
             f"• Description: {task_description}\n"
-            f"• Priority: {priority}\n"
-            f"• Time: {time_minutes or 'Not specified'} minutes\n"
+            f"• Priority: {priority_icon} {priority}\n"
+            f"• Reminder: every {time_minutes} minutes\n"
             f"• Due: {due_date or 'Not specified'}\n\n"
             f"Assigned to: {', '.join(employee_names)}"
         )
